@@ -1,0 +1,198 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+}
+
+model Category {
+  id          String     @id @default(cuid())
+  name        String
+  slug        String     @unique
+  description String?
+  image       String?
+  parentId    String?
+  parent      Category?  @relation("CategoryParent", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryParent")
+  products    Product[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Product {
+  id               String      @id @default(cuid())
+  name             String
+  slug             String      @unique
+  description      String?
+  price            Float
+  compareAtPrice   Float?
+  images           String      // JSON array of image URLs
+  inventoryQty     Int         @default(0)
+  sku              String?     @unique
+  tags             String      // JSON array of tags
+  status           String      @default("active") // active, draft, archived
+  categoryId       String?
+  category         Category?   @relation(fields: [categoryId], references: [id])
+  variants         Variant[]
+  orderItems       OrderItem[]
+  // Print-on-demand fields
+  fulfillmentType  String      @default("manual") // manual, printful, printify
+  printfulId       String?     // Printful sync product ID
+  printfulExtId    String?     // External ID for Printful
+  designFiles      String      @default("[]") // JSON array of design file URLs
+  mockupImages     String      @default("[]") // JSON array of mockup URLs
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+}
+
+model Variant {
+  id           String      @id @default(cuid())
+  productId    String
+  product      Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  size         String?
+  color        String?
+  price        Float?
+  inventoryQty Int         @default(0)
+  sku          String?     @unique
+  orderItems   OrderItem[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model Order {
+  id                     String      @id @default(cuid())
+  userId                 String?
+  user                   User?       @relation(fields: [userId], references: [id])
+  status                 String      @default("pending") // pending, paid, shipped, delivered, cancelled
+  totalAmount            Float
+  shippingAddress        String      // JSON
+  billingAddress         String      // JSON
+  stripePaymentIntentId  String?
+  items                  OrderItem[]
+  // Fulfillment tracking
+  fulfillmentStatus      String      @default("unfulfilled") // unfulfilled, pending, fulfilled, cancelled
+  printfulOrderId        String?     // Printful order ID
+  trackingNumber         String?     // Shipping tracking number
+  trackingUrl            String?     // Tracking URL
+  shippedAt              DateTime?   // When order was shipped
+  estimatedDelivery      DateTime?   // Estimated delivery date
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  variantId String?
+  variant   Variant? @relation(fields: [variantId], references: [id])
+  quantity  Int
+  price     Float
+  createdAt DateTime @default(now())
+}
+
+model Newsletter {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  isActive  Boolean  @default(true)
+  source    String?  // e.g., "club999", "early-access"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model EarlyAccess {
+  id            String   @id @default(cuid())
+  firstName     String
+  lastName      String
+  email         String
+  phone         String?
+  size          String
+  notifications Boolean  @default(true)
+  status        String   @default("pending") // pending, approved, notified
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Testimonial {
+  id              String   @id @default(cuid())
+  name            String?
+  location        String?
+  testimonial     String
+  productPurchased String?
+  rating          Int      @default(5)
+  isAnonymous     Boolean  @default(false)
+  allowPublic     Boolean  @default(true)
+  isApproved      Boolean  @default(false)
+  isFeatured      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Memory {
+  id           String   @id @default(cuid())
+  name         String?
+  location     String?
+  memory       String
+  favoriteSong String?
+  memoryType   String   @default("general") // general, concert, personal, tribute
+  isAnonymous  Boolean  @default(false)
+  isApproved   Boolean  @default(false)
+  isFeatured   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model FanArt {
+  id          String   @id @default(cuid())
+  artistName  String
+  title       String
+  type        String   // digital, painting, design, photo
+  description String?
+  socialHandle String?
+  fileName    String   // stored file name
+  fileSize    Int      // file size in bytes
+  mimeType    String   // image mime type
+  isApproved  Boolean  @default(false)
+  isFeatured  Boolean  @default(false)
+  likes       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Admin {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String   // hashed password
+  email     String   @unique
+  role      String   @default("admin") // admin, moderator, super_admin
+  isActive  Boolean  @default(true)
+  lastLogin DateTime?
+  sessions  AdminSession[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AdminSession {
+  id        String   @id @default(cuid())
+  adminId   String
+  admin     Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}

@@ -1,26 +1,210 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0a0a;
+  --foreground: #ffffff;
+  --primary: #6a0dad;
+  --primary-dark: #4a1c58;
+  --accent: #39ff14;
+  --accent-yellow: #ffff00;
+  --accent-pink: #ff1493;
+  --gray-900: #1a1a1a;
+  --gray-800: #2a2a2a;
+  --gray-700: #3a3a3a;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* Enhanced Body with Animated Background */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', sans-serif;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Animated Background Pattern */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at 20% 80%, rgba(106, 13, 173, 0.3) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(57, 255, 20, 0.2) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(255, 255, 0, 0.1) 0%, transparent 50%);
+  animation: backgroundFloat 20s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+
+@keyframes backgroundFloat {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.3;
+  }
+  33% {
+    transform: scale(1.1) rotate(120deg);
+    opacity: 0.5;
+  }
+  66% {
+    transform: scale(0.9) rotate(240deg);
+    opacity: 0.2;
+  }
+}
+
+/* Advanced Text Effects */
+.text-gradient {
+  background: linear-gradient(45deg, var(--primary), var(--accent), var(--accent-yellow));
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradientShift 3s ease-in-out infinite;
+}
+
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.neon-text {
+  color: var(--accent);
+  text-shadow:
+    0 0 5px var(--accent),
+    0 0 10px var(--accent),
+    0 0 20px var(--accent),
+    0 0 40px var(--accent);
+  animation: neonFlicker 2s ease-in-out infinite alternate;
+}
+
+@keyframes neonFlicker {
+  0%, 100% {
+    text-shadow:
+      0 0 5px var(--accent),
+      0 0 10px var(--accent),
+      0 0 20px var(--accent),
+      0 0 40px var(--accent);
+  }
+  50% {
+    text-shadow:
+      0 0 2px var(--accent),
+      0 0 5px var(--accent),
+      0 0 8px var(--accent),
+      0 0 12px var(--accent);
+  }
+}
+
+.neon-glow {
+  box-shadow:
+    0 0 10px var(--accent),
+    0 0 20px var(--accent),
+    inset 0 0 10px rgba(57, 255, 20, 0.1);
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.neon-glow::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(45deg, var(--accent), var(--primary), var(--accent-yellow), var(--accent));
+  background-size: 300% 300%;
+  border-radius: inherit;
+  z-index: -1;
+  animation: borderGlow 3s ease-in-out infinite;
+}
+
+@keyframes borderGlow {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.neon-glow:hover {
+  box-shadow:
+    0 0 20px var(--accent),
+    0 0 40px var(--accent),
+    0 0 60px var(--accent),
+    inset 0 0 20px rgba(57, 255, 20, 0.2);
+  transform: translateY(-3px);
+}
+
+.btn-primary {
+  background: linear-gradient(45deg, var(--primary), #4a1c58);
+  color: white;
+  border: 2px solid var(--accent);
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(45deg, var(--accent), var(--primary));
+  box-shadow: 0 0 20px var(--accent);
+  transform: translateY(-2px);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 2px solid var(--accent);
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  background: var(--accent);
+  color: var(--background);
+  box-shadow: 0 0 20px var(--accent);
+}
+
+@keyframes pulse-neon {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-pulse-neon {
+  animation: pulse-neon 2s ease-in-out infinite;
+}
+
+/* Logo Blending Styles */
+.logo-blend {
+  /* Remove white backgrounds and blend with dark theme */
+  mix-blend-mode: screen;
+  filter: brightness(1.2) contrast(1.1);
+  background: transparent;
+}
+
+/* Alternative blending for different logo types */
+.logo-blend-multiply {
+  mix-blend-mode: multiply;
+  filter: invert(1) brightness(2);
+}
+
+.logo-blend-overlay {
+  mix-blend-mode: overlay;
+  filter: brightness(1.5) contrast(1.2) saturate(1.1);
+}
+
+/* Logo container background removal */
+.logo-blend::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: transparent;
+  border-radius: inherit;
 }
