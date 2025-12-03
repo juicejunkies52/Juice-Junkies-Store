@@ -60,7 +60,7 @@ export default function CheckoutForm() {
     setIsLoading(true)
     setMessage(null)
 
-    const { error, paymentIntent } = await stripe.confirmPayment({
+    const result = await stripe.confirmPayment({
       elements,
       confirmParams: {
         return_url: `${window.location.origin}/order/success`,
@@ -68,13 +68,13 @@ export default function CheckoutForm() {
       },
     })
 
-    if (error) {
-      if (error.type === 'card_error' || error.type === 'validation_error') {
-        setMessage(error.message || 'An error occurred')
+    if (result.error) {
+      if (result.error.type === 'card_error' || result.error.type === 'validation_error') {
+        setMessage(result.error.message || 'An error occurred')
       } else {
         setMessage('An unexpected error occurred.')
       }
-    } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+    } else if ('paymentIntent' in result && (result as any).paymentIntent?.status === 'succeeded') {
       // Payment succeeded
       clearCart()
       router.push('/order/success')
@@ -120,7 +120,7 @@ export default function CheckoutForm() {
               mode: 'shipping',
               allowedCountries: ['US'],
               autocomplete: {
-                mode: 'google_maps_api',
+                mode: 'automatic',
               },
             }}
           />

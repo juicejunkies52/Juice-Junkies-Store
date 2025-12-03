@@ -298,7 +298,7 @@ export default function ProductPage() {
                 }`}
                 whileHover={!isOutOfStock ? { scale: 1.02 } : {}}
                 whileTap={!isOutOfStock ? { scale: 0.98 } : {}}
-                disabled={isOutOfStock}
+                disabled={!!isOutOfStock}
               >
                 <ShoppingCart className="w-5 h-5" />
                 {isOutOfStock ? 'Sold Out' : 'Add to Cart'}

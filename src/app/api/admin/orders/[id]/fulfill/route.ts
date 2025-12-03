@@ -113,7 +113,7 @@ export async function POST(
   } catch (error) {
     console.error('Order fulfillment error:', error)
     return NextResponse.json(
-      { error: 'Failed to fulfill order', details: error.message },
+      { error: 'Failed to fulfill order', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }

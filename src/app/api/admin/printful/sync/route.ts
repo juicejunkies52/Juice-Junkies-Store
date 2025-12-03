@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
         syncResults.push({
           action: 'error',
           printfulProduct: printfulProduct,
-          error: productError.message
+          error: productError instanceof Error ? productError.message : 'Unknown error'
         })
       }
     }
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Printful sync error:', error)
     return NextResponse.json(
-      { error: 'Failed to sync products from Printful', details: error.message },
+      { error: 'Failed to sync products from Printful', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }

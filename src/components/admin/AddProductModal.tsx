@@ -125,8 +125,8 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded }: Add
       onProductAdded()
       onClose()
 
-    } catch (error: any) {
-      setError(error.message)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'An error occurred')
     } finally {
       setIsLoading(false)
     }

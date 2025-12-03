@@ -35,8 +35,8 @@ export default function AnimatedBackground() {
       maxLife: number
 
       constructor() {
-        this.x = Math.random() * canvas.width
-        this.y = canvas.height + 50 // Start below screen
+        this.x = Math.random() * (canvas?.width || 800)
+        this.y = (canvas?.height || 600) + 50 // Start below screen
         this.vx = (Math.random() - 0.5) * 0.8
         this.vy = -0.3 - Math.random() * 0.5 // Float upward
         this.size = 20 + Math.random() * 30
@@ -59,13 +59,13 @@ export default function AnimatedBackground() {
         this.vy += (Math.random() - 0.5) * 0.005
 
         // Boundaries - wrap horizontally, reset vertically
-        if (this.x < -50) this.x = canvas.width + 50
-        if (this.x > canvas.width + 50) this.x = -50
+        if (this.x < -50) this.x = (canvas?.width || 800) + 50
+        if (this.x > (canvas?.width || 800) + 50) this.x = -50
 
         // Reset when it goes off top or life expires
         if (this.y < -100 || this.life > this.maxLife) {
-          this.y = canvas.height + 50
-          this.x = Math.random() * canvas.width
+          this.y = (canvas?.height || 600) + 50
+          this.x = Math.random() * (canvas?.width || 800)
           this.life = 0
         }
       }
@@ -103,18 +103,21 @@ export default function AnimatedBackground() {
 
     // Animation loop
     const animate = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      const canvasWidth = canvas?.width || 800
+      const canvasHeight = canvas?.height || 600
+
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight)
 
       // Draw subtle gradient background
       const gradient = ctx.createRadialGradient(
-        canvas.width / 2, canvas.height / 2, 0,
-        canvas.width / 2, canvas.height / 2, canvas.width / 2
+        canvasWidth / 2, canvasHeight / 2, 0,
+        canvasWidth / 2, canvasHeight / 2, canvasWidth / 2
       )
       gradient.addColorStop(0, 'rgba(106, 13, 173, 0.05)')
       gradient.addColorStop(0.5, 'rgba(10, 10, 10, 0.8)')
       gradient.addColorStop(1, 'rgba(57, 255, 20, 0.02)')
       ctx.fillStyle = gradient
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight)
 
       // Update and draw floating 999s
       float999s.forEach(float999 => {

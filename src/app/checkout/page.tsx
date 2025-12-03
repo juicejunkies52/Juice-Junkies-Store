@@ -16,11 +16,11 @@ const stripePromise = getStripe()
 // Demo checkout form for development
 function DemoCheckoutForm() {
   const router = useRouter()
-  const { dispatch } = useCart()
+  const { clearCart } = useCart()
 
   const handleDemoPayment = () => {
     // Simulate successful payment
-    dispatch({ type: 'CLEAR_CART' })
+    clearCart()
     router.push('/order/success?demo=true')
   }
 
