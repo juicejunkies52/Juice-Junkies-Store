@@ -53,9 +53,9 @@ export default function NotFound() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5 }}
           >
-            The page you're looking for doesn't exist.
+            The page you&apos;re looking for doesn&apos;t exist.
             <br />
-            Let's get you back to the good stuff.
+            Let&apos;s get you back to the good stuff.
           </motion.p>
 
           <motion.div
