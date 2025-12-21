@@ -96,13 +96,14 @@ export default function FeaturedProducts() {
           viewport={{ once: true }}
           transition={{ delay: 0.4 }}
         >
-          <motion.button
-            className="btn-secondary px-8 py-4 text-lg"
+          <motion.a
+            href="/shop"
+            className="btn-secondary px-8 py-4 text-lg inline-block"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
             View All Products
-          </motion.button>
+          </motion.a>
         </motion.div>
       </div>
     </section>

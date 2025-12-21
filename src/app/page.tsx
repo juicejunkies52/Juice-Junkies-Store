@@ -93,7 +93,7 @@ export default function Home() {
           animate={{ opacity: 1, x: 0 }}
           className="flex items-center space-x-6"
         >
-          <a href="#shop" className="text-white hover:text-accent transition-colors">Shop</a>
+          <a href="/shop" className="text-white hover:text-accent transition-colors">Shop</a>
           <a href="#collections" className="text-white hover:text-accent transition-colors">Collections</a>
           <a href="#about" className="text-white hover:text-accent transition-colors">About</a>
           <CartIcon />

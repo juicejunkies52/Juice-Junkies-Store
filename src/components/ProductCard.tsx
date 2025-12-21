@@ -25,9 +25,10 @@ interface Product {
 interface ProductCardProps {
   product: Product
   index?: number
+  viewMode?: 'grid' | 'list'
 }
 
-export default function ProductCard({ product, index = 0 }: ProductCardProps) {
+export default function ProductCard({ product, index = 0, viewMode = 'grid' }: ProductCardProps) {
   const { addItem, setCartOpen } = useCart()
 
   const discount = product.compareAtPrice
