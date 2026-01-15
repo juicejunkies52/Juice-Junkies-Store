@@ -1,15 +1,33 @@
 'use client'
 
 import { motion } from 'framer-motion'
+import { useState, useEffect } from 'react'
 import { useCart } from '@/contexts/CartContext'
 import ProductImage from './ProductImage'
+import { calculateTax, formatTaxRate } from '@/lib/tax'
 
 export default function OrderSummary() {
   const { state } = useCart()
+  const [shippingAddress, setShippingAddress] = useState<any>(null)
 
   const subtotal = state.total
   const shipping = subtotal >= 75 ? 0 : 9.99
-  const total = subtotal + shipping
+
+  // Calculate tax based on shipping address (if available)
+  const taxCalculation = calculateTax(subtotal, shipping, shippingAddress)
+  const total = taxCalculation.total
+
+  // Listen for address changes from Stripe Elements
+  useEffect(() => {
+    const handleAddressChange = (event: any) => {
+      if (event.detail?.address) {
+        setShippingAddress(event.detail.address)
+      }
+    }
+
+    window.addEventListener('stripe-address-change', handleAddressChange)
+    return () => window.removeEventListener('stripe-address-change', handleAddressChange)
+  }, [])
 
   return (
     <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-gray-800 p-8">
@@ -76,6 +94,23 @@ export default function OrderSummary() {
           >
             <span>🎉 Free shipping unlocked!</span>
           </motion.div>
+        )}
+
+        {/* Tax (only show if applicable) */}
+        {taxCalculation.taxAmount > 0 && (
+          <div className="flex justify-between text-gray-300">
+            <span>
+              Sales Tax ({formatTaxRate(taxCalculation.taxRate)} SC)
+            </span>
+            <span>${taxCalculation.taxAmount.toFixed(2)}</span>
+          </div>
+        )}
+
+        {/* Tax Info for non-SC addresses */}
+        {!shippingAddress && (
+          <div className="text-gray-400 text-xs italic">
+            Tax will be calculated based on shipping address
+          </div>
         )}
 
         <div className="flex justify-between text-xl font-bold text-white border-t border-gray-700 pt-3">

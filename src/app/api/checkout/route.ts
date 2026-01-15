@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { stripe, formatAmountForStripe } from '../../../../lib/stripe'
+import { calculateTax, createTaxCalculationForStripe } from '../../../lib/tax'
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,7 +12,10 @@ export async function POST(request: NextRequest) {
       sum + (item.price * item.quantity), 0)
 
     const shipping = subtotal >= 75 ? 0 : 9.99
-    const total = subtotal + shipping
+
+    // Calculate tax based on shipping address
+    const taxCalculation = calculateTax(subtotal, shipping, shippingAddress)
+    const total = taxCalculation.total
 
     // Validate minimum amount (Stripe requires at least $0.50)
     if (total < 0.50) {
@@ -43,6 +47,8 @@ export async function POST(request: NextRequest) {
         itemCount: items.length.toString(),
         subtotal: subtotal.toString(),
         shipping: shipping.toString(),
+        tax: taxCalculation.taxAmount.toString(),
+        taxRate: taxCalculation.taxRate.toString(),
       },
       shipping: shippingAddress ? {
         name: shippingAddress.name,
@@ -60,6 +66,13 @@ export async function POST(request: NextRequest) {
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
       amount: total,
+      tax: {
+        amount: taxCalculation.taxAmount,
+        rate: taxCalculation.taxRate,
+        subtotal: taxCalculation.subtotal,
+        shipping: shipping,
+        total: total
+      }
     })
 
   } catch (error) {
