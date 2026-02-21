@@ -11,7 +11,7 @@ export default function OrderSummary() {
   const [shippingAddress, setShippingAddress] = useState<any>(null)
 
   const subtotal = state.total
-  const shipping = subtotal >= 75 ? 0 : 9.99
+  const shipping = subtotal >= 1 ? 0 : 9.99
 
   // Calculate tax based on shipping address (if available)
   const taxCalculation = calculateTax(subtotal, shipping, shippingAddress)

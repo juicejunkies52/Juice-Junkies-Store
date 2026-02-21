@@ -1,9 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { Lock, User, Eye, EyeOff } from 'lucide-react'
+
+interface Particle {
+  id: number
+  left: number
+  top: number
+  duration: number
+  delay: number
+}
 
 export default function AdminLogin() {
   const router = useRouter()
@@ -14,6 +22,19 @@ export default function AdminLogin() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [particles, setParticles] = useState<Particle[]>([])
+
+  // Generate particles on client side only
+  useEffect(() => {
+    const generatedParticles: Particle[] = Array.from({ length: 20 }, (_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      top: Math.random() * 100,
+      duration: 3 + Math.random() * 2,
+      delay: Math.random() * 3
+    }))
+    setParticles(generatedParticles)
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -50,22 +71,22 @@ export default function AdminLogin() {
         <div className="absolute inset-0 bg-gradient-to-br from-purple-900/20 via-black to-green-900/20" />
 
         {/* Floating particles */}
-        {[...Array(20)].map((_, i) => (
+        {particles.map((particle) => (
           <motion.div
-            key={i}
+            key={particle.id}
             className="absolute w-1 h-1 bg-accent/30 rounded-full"
             style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`
+              left: `${particle.left}%`,
+              top: `${particle.top}%`
             }}
             animate={{
               y: [-20, -100, -20],
               opacity: [0, 1, 0]
             }}
             transition={{
-              duration: 3 + Math.random() * 2,
+              duration: particle.duration,
               repeat: Infinity,
-              delay: Math.random() * 3
+              delay: particle.delay
             }}
           />
         ))}

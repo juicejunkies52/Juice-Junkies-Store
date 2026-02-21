@@ -41,7 +41,7 @@ export default function AnimatedBackground() {
         this.vy = -0.3 - Math.random() * 0.5 // Float upward
         this.size = 20 + Math.random() * 30
         this.color = Math.random() > 0.5 ? '#6a0dad' : '#39ff14'
-        this.opacity = 0.1 + Math.random() * 0.3
+        this.opacity = 0.03 + Math.random() * 0.1
         this.rotation = Math.random() * Math.PI * 2
         this.rotationSpeed = (Math.random() - 0.5) * 0.02
         this.life = 0

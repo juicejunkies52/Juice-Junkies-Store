@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     const subtotal = items.reduce((sum: number, item: any) =>
       sum + (item.price * item.quantity), 0)
 
-    const shipping = subtotal >= 75 ? 0 : 9.99
+    const shipping = subtotal >= 1 ? 0 : 9.99
 
     // Calculate tax based on shipping address
     const taxCalculation = calculateTax(subtotal, shipping, shippingAddress)
@@ -25,15 +25,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Demo mode for development
-    if (process.env.STRIPE_SECRET_KEY === 'demo') {
-      return NextResponse.json({
-        clientSecret: 'pi_demo_client_secret_123456789',
-        paymentIntentId: 'pi_demo_123456789',
-        amount: total,
-        demo: true
-      })
-    }
 
     // Create payment intent
     const paymentIntent = await stripe.paymentIntents.create({

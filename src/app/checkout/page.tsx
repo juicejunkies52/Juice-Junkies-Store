@@ -11,8 +11,6 @@ import AnimatedBackground from '@/components/AnimatedBackground'
 import CheckoutForm from '@/components/CheckoutForm'
 import OrderSummary from '@/components/OrderSummary'
 
-const stripePromise = getStripe()
-
 // Demo checkout form for development
 function DemoCheckoutForm() {
   const router = useRouter()
@@ -81,6 +79,16 @@ export default function CheckoutPage() {
   const { state } = useCart()
   const [clientSecret, setClientSecret] = useState<string>('')
   const [loading, setLoading] = useState(true)
+  const [stripePromise, setStripePromise] = useState<any>(null)
+
+  // Initialize Stripe promise on client side
+  useEffect(() => {
+    const initializeStripe = async () => {
+      const stripe = await getStripe()
+      setStripePromise(stripe)
+    }
+    initializeStripe()
+  }, [])
 
   // Redirect if cart is empty
   useEffect(() => {
@@ -224,7 +232,7 @@ export default function CheckoutPage() {
 
                 {clientSecret === 'demo' ? (
                   <DemoCheckoutForm />
-                ) : (
+                ) : stripePromise && clientSecret ? (
                   <Elements
                     stripe={stripePromise}
                     options={{
@@ -234,6 +242,10 @@ export default function CheckoutPage() {
                   >
                     <CheckoutForm />
                   </Elements>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-white">Initializing payment system...</p>
+                  </div>
                 )}
               </div>
 
@@ -251,7 +263,7 @@ export default function CheckoutPage() {
                   <div className="w-6 h-6 mx-auto mb-2 bg-accent rounded-full flex items-center justify-center">
                     <span className="text-black text-xs font-bold">999</span>
                   </div>
-                  <p className="text-xs">Official Store</p>
+                  <p className="text-xs">Juice Junkies Official Store</p>
                 </div>
               </div>
             </motion.div>

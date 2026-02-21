@@ -2,13 +2,14 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Pause, Volume2, VolumeX, Music } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, Music, X } from 'lucide-react'
 
 export default function AudioPlayer() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(0.3)
   const [isVisible, setIsVisible] = useState(false)
+  const [isDismissed, setIsDismissed] = useState(false)
   const audioRef = useRef<HTMLAudioElement>(null)
 
   // Show audio control after 3 seconds
@@ -45,21 +46,25 @@ export default function AudioPlayer() {
 
   return (
     <>
-      {/* Ambient audio - placeholder for when you add audio files */}
+      {/* Ambient audio with relaxing sounds */}
       <audio
         ref={audioRef}
         loop
-        preload="none"
+        preload="metadata"
         onEnded={() => setIsPlaying(false)}
-        onError={() => setIsPlaying(false)}
+        onError={() => {
+          console.log('Audio not available')
+          setIsPlaying(false)
+        }}
       >
-        {/* Add your audio files to public/audio/ directory */}
-        {/* <source src="/audio/ambient-space.mp3" type="audio/mpeg" /> */}
+        {/* Placeholder for ambient audio - you can add your audio files here */}
+        <source src="/audio/ambient-chill.mp3" type="audio/mpeg" />
+        <source src="/audio/juice-wrld-ambient.mp3" type="audio/mpeg" />
       </audio>
 
       {/* Floating Audio Control */}
       <AnimatePresence>
-        {isVisible && (
+        {isVisible && !isDismissed && (
           <motion.div
             className="fixed bottom-6 right-6 z-50"
             initial={{ opacity: 0, scale: 0, rotate: -180 }}
@@ -67,7 +72,24 @@ export default function AudioPlayer() {
             exit={{ opacity: 0, scale: 0, rotate: 180 }}
             transition={{ type: "spring", stiffness: 200, damping: 20 }}
           >
-            <div className="bg-black/80 backdrop-blur-md rounded-full border border-accent/50 p-4 shadow-2xl">
+            <div className="bg-black/80 backdrop-blur-md rounded-full border border-accent/50 p-4 shadow-2xl relative">
+              {/* Close/Exit Button */}
+              <motion.button
+                onClick={() => {
+                  setIsDismissed(true)
+                  if (isPlaying) {
+                    audioRef.current?.pause()
+                    setIsPlaying(false)
+                  }
+                }}
+                className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500/80 hover:bg-red-500 flex items-center justify-center text-white text-xs transition-colors"
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                title="Close music player"
+              >
+                <X className="w-3 h-3" />
+              </motion.button>
+
               <div className="flex items-center gap-3">
                 {/* Play/Pause Button */}
                 <motion.button

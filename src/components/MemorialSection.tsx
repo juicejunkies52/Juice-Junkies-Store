@@ -7,6 +7,9 @@ import MemorySubmissionModal from './MemorySubmissionModal'
 
 export default function MemorialSection() {
   const [showMemoryModal, setShowMemoryModal] = useState(false)
+
+  // Stable heart positions to avoid hydration mismatch
+  const heartPositions = [30, 55, 75, 40, 25, 65]
   const memories = [
     {
       date: "Dec 8, 2019",
@@ -186,7 +189,7 @@ export default function MemorialSection() {
               className="absolute"
               style={{
                 left: `${10 + (i * 15)}%`,
-                top: `${20 + Math.random() * 60}%`,
+                top: `${heartPositions[i]}%`,
               }}
               animate={{
                 y: [-20, -80, -20],

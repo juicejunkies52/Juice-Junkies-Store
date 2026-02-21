@@ -178,6 +178,19 @@ async function main() {
       sku: "JW-GBGR-VINTAGE",
       tags: JSON.stringify(["goodbye good riddance", "vintage", "album", "retro"]),
       categoryId: tshirts?.id
+    },
+    {
+      name: "999 Sticker Pack - TEST ITEM",
+      slug: "999-sticker-test",
+      description: "Small sticker pack for testing payments only. Contains 3 vinyl 999 stickers.",
+      price: 1.00,
+      images: JSON.stringify([
+        "/products/999-stickers-1.jpg"
+      ]),
+      inventoryQty: 1000,
+      sku: "JW-TEST-STICKERS",
+      tags: JSON.stringify(["stickers", "test", "cheap", "999"]),
+      categoryId: accessories?.id
     }
   ]
 

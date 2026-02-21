@@ -17,6 +17,9 @@ export default function LimitedDropBanner() {
   const [isVisible, setIsVisible] = useState(true)
   const [showEarlyAccessModal, setShowEarlyAccessModal] = useState(false)
 
+  // Stable sparkle positions to avoid hydration mismatch
+  const sparklePositions = [25, 45, 60, 35, 70, 50]
+
   // Set countdown to 7 days from now
   const dropDate = new Date()
   dropDate.setDate(dropDate.getDate() + 7)
@@ -200,7 +203,7 @@ export default function LimitedDropBanner() {
             className="absolute w-1 h-1 bg-yellow-400 rounded-full"
             style={{
               left: `${10 + i * 15}%`,
-              top: `${20 + Math.random() * 60}%`
+              top: `${sparklePositions[i]}%`
             }}
             animate={{
               opacity: [0, 1, 0],

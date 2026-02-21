@@ -7,6 +7,12 @@ export default function LyricOverlay() {
   const [currentLyric, setCurrentLyric] = useState(0)
   const [isVisible, setIsVisible] = useState(false)
 
+  // Stable particle positions to avoid hydration mismatch
+  const particlePositions = [
+    { x: 25, y: 30 }, { x: 45, y: 60 }, { x: 65, y: 25 }, { x: 35, y: 70 },
+    { x: 75, y: 40 }, { x: 55, y: 80 }, { x: 20, y: 50 }, { x: 80, y: 65 }
+  ]
+
   const lyrics = [
     {
       text: "Legends never die",
@@ -101,24 +107,24 @@ export default function LyricOverlay() {
           }}
         >
           <div className="text-center max-w-2xl px-8">
-            {/* Main lyric text */}
+            {/* Main lyric text - reduced opacity for less distraction */}
             <motion.h2
-              className="text-4xl md:text-6xl font-bold text-white mb-4 font-mono"
+              className="text-3xl md:text-4xl font-bold text-white/60 mb-4 font-mono"
               initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
+              animate={{ opacity: 0.6, y: 0 }}
               transition={{ delay: 0.3, duration: 1 }}
               style={{
-                textShadow: '0 0 30px rgba(106, 13, 173, 0.8), 0 0 60px rgba(106, 13, 173, 0.4)'
+                textShadow: '0 0 20px rgba(106, 13, 173, 0.4), 0 0 40px rgba(106, 13, 173, 0.2)'
               }}
             >
               {currentLyricData.text}
             </motion.h2>
 
-            {/* Subtitle */}
+            {/* Subtitle - reduced opacity */}
             <motion.p
-              className="text-xl md:text-2xl text-accent/80"
+              className="text-lg md:text-xl text-accent/40"
               initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
+              animate={{ opacity: 0.4, y: 0 }}
               transition={{ delay: 0.8, duration: 1 }}
             >
               {currentLyricData.subtitle}
@@ -178,8 +184,8 @@ export default function LyricOverlay() {
                   key={i}
                   className="absolute w-2 h-2 bg-accent/40 rounded-full"
                   style={{
-                    left: `${20 + Math.random() * 60}%`,
-                    top: `${20 + Math.random() * 60}%`
+                    left: `${particlePositions[i].x}%`,
+                    top: `${particlePositions[i].y}%`
                   }}
                   animate={{
                     opacity: [0, 1, 0],
