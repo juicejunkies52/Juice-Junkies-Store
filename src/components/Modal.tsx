@@ -45,36 +45,40 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = "ma
             onClick={onClose}
           />
 
-          {/* Modal */}
-          <motion.div
-            className={`fixed top-1/2 left-1/2 w-full ${maxWidth} mx-4 bg-black/90 backdrop-blur-md border border-gray-800 rounded-xl z-50`}
-            initial={{
-              opacity: 0,
-              scale: 0.9,
-              x: '-50%',
-              y: '-50%',
-              rotateX: -15
-            }}
-            animate={{
-              opacity: 1,
-              scale: 1,
-              x: '-50%',
-              y: '-50%',
-              rotateX: 0
-            }}
-            exit={{
-              opacity: 0,
-              scale: 0.9,
-              x: '-50%',
-              y: '-50%',
-              rotateX: 15
-            }}
-            transition={{
-              type: "spring",
-              stiffness: 300,
-              damping: 30
+          {/* Modal Container - Scrollable */}
+          <div
+            className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto"
+            onClick={(e) => {
+              // Close modal if clicking the backdrop (not the modal content)
+              if (e.target === e.currentTarget) {
+                onClose()
+              }
             }}
           >
+            <motion.div
+              className={`w-full ${maxWidth} my-8 bg-black/90 backdrop-blur-md border border-gray-800 rounded-xl`}
+              initial={{
+                opacity: 0,
+                scale: 0.9,
+                rotateX: -15
+              }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                rotateX: 0
+              }}
+              exit={{
+                opacity: 0,
+                scale: 0.9,
+                rotateX: 15
+              }}
+              transition={{
+                type: "spring",
+                stiffness: 300,
+                damping: 30
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-gray-800">
               <motion.h2
@@ -121,7 +125,8 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = "ma
                 ease: "easeInOut"
               }}
             />
-          </motion.div>
+            </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>

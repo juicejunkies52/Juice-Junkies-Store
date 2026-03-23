@@ -32,13 +32,15 @@ export async function POST(request: NextRequest) {
         memory: data.memory,
         favoriteSong: data.favoriteSong,
         memoryType: data.memoryType,
-        isAnonymous: data.isAnonymous
+        isAnonymous: data.isAnonymous,
+        isApproved: false, // Requires admin approval
+        isFeatured: false
       }
     })
 
     return NextResponse.json({
       success: true,
-      message: 'Memory shared successfully',
+      message: 'Memory submitted successfully! It will be reviewed before appearing on the memorial wall.',
       id: memory.id
     })
 
@@ -84,22 +86,14 @@ export async function GET() {
     })
 
     const stats = await prisma.memory.aggregate({
-      _count: {
-        id: true
-      },
-      where: {
-        isApproved: true
-      }
+      _count: { id: true },
+      where: { isApproved: true }
     })
 
     const typeStats = await prisma.memory.groupBy({
       by: ['memoryType'],
-      _count: {
-        memoryType: true
-      },
-      where: {
-        isApproved: true
-      }
+      _count: { memoryType: true },
+      where: { isApproved: true }
     })
 
     return NextResponse.json({

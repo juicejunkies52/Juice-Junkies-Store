@@ -1,38 +1,47 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Heart, Star, Calendar, Users } from 'lucide-react'
 import MemorySubmissionModal from './MemorySubmissionModal'
 
 export default function MemorialSection() {
   const [showMemoryModal, setShowMemoryModal] = useState(false)
+  const [memories, setMemories] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [memoryStats, setMemoryStats] = useState({ total: 999999 })
+
+  // Load real memories from database
+  useEffect(() => {
+    const loadMemories = async () => {
+      try {
+        const response = await fetch('/api/memories')
+        if (response.ok) {
+          const data = await response.json()
+          setMemories(data.memories || [])
+          setMemoryStats(data.stats || { total: 999999 })
+        }
+      } catch (error) {
+        console.error('Error loading memories:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadMemories()
+  }, [])
 
   // Stable heart positions to avoid hydration mismatch
   const heartPositions = [30, 55, 75, 40, 25, 65]
-  const memories = [
-    {
-      date: "Dec 8, 2019",
-      title: "Forever in our hearts",
-      message: "A young legend who touched millions with his music and authenticity",
-      author: "The 999 Family",
-      hearts: 999999
-    },
-    {
-      date: "Born Dec 2, 1998",
-      title: "Jarad Anthony Higgins",
-      message: "From Chicago with love, spreading positivity through pain",
-      author: "Hometown Hero",
-      hearts: 120298
-    },
-    {
-      date: "Legacy Lives On",
-      title: "Legends Never Die",
-      message: "His music continues to heal and inspire new generations",
-      author: "999 Forever",
-      hearts: 777777
-    }
-  ]
+
+  // Display real memories if available
+  const displayMemories = memories.length > 0 ? memories.slice(0, 3).map(memory => ({
+    date: new Date(memory.createdAt).toLocaleDateString(),
+    title: memory.favoriteSong || 'A Special Memory',
+    message: memory.memory,
+    author: memory.name || 'Anonymous Fan',
+    hearts: Math.floor(Math.random() * 50000) + 1000 // Random hearts for user memories
+  })) : []
 
   return (
     <section className="relative z-40 py-20 px-6 bg-gradient-to-b from-transparent via-black/20 to-transparent">
@@ -75,7 +84,26 @@ export default function MemorialSection() {
 
         {/* Memory Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
-          {memories.map((memory, index) => (
+          {loading ? (
+            // Loading skeleton
+            [...Array(3)].map((_, index) => (
+              <div key={index} className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 p-8 animate-pulse">
+                <div className="space-y-4">
+                  <div className="h-4 bg-gray-700 rounded w-1/3"></div>
+                  <div className="h-6 bg-gray-700 rounded w-2/3"></div>
+                  <div className="space-y-2">
+                    <div className="h-3 bg-gray-700 rounded w-full"></div>
+                    <div className="h-3 bg-gray-700 rounded w-4/5"></div>
+                  </div>
+                  <div className="flex justify-between">
+                    <div className="h-3 bg-gray-700 rounded w-1/4"></div>
+                    <div className="h-3 bg-gray-700 rounded w-1/5"></div>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : displayMemories.length > 0 ? (
+            displayMemories.map((memory, index) => (
             <motion.div
               key={index}
               className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 p-8 hover:border-accent/50 transition-all duration-300"
@@ -118,7 +146,30 @@ export default function MemorialSection() {
                 </motion.div>
               </div>
             </motion.div>
-          ))}
+            ))
+          ) : (
+            // Empty state when no memories exist
+            <div className="col-span-full">
+              <motion.div
+                className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 p-12 text-center"
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+              >
+                <Heart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                <h4 className="text-white font-bold text-xl mb-2">Memorial Wall</h4>
+                <p className="text-gray-400 mb-6">No memories have been shared yet. Be the first to add to our memorial wall and honor Juice WRLD's legacy.</p>
+                <motion.button
+                  className="btn-primary px-6 py-3"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowMemoryModal(true)}
+                >
+                  Share a Memory
+                </motion.button>
+              </motion.div>
+            </div>
+          )}
         </div>
 
         {/* Interactive Tribute Wall */}
@@ -153,7 +204,7 @@ export default function MemorialSection() {
               viewport={{ once: true }}
               transition={{ delay: 0.8 }}
             >
-              <div className="text-4xl font-bold text-accent mb-2">999,999+</div>
+              <div className="text-4xl font-bold text-accent mb-2">{memoryStats.total.toLocaleString()}+</div>
               <div className="text-gray-400">Memories Shared</div>
             </motion.div>
 

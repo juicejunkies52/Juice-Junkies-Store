@@ -1,17 +1,48 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Heart, MessageCircle, Share2, Instagram, Twitter, Video, Play } from 'lucide-react'
+import { Heart, MessageCircle, Share2, Facebook, Play } from 'lucide-react'
 import FanArtSubmissionModal from './FanArtSubmissionModal'
 import TestimonialSubmissionModal from './TestimonialSubmissionModal'
 
 export default function CommunitySection() {
   const [showFanArtModal, setShowFanArtModal] = useState(false)
   const [showTestimonialModal, setShowTestimonialModal] = useState(false)
+  const [testimonials, setTestimonials] = useState([])
+  const [fanArt, setFanArt] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  // Load real testimonials and fan art from database
+  useEffect(() => {
+    const loadCommunityData = async () => {
+      try {
+        const [testimonialsRes, fanArtRes] = await Promise.all([
+          fetch('/api/testimonials?approved=true'),
+          fetch('/api/fan-art?approved=true')
+        ])
+
+        if (testimonialsRes.ok) {
+          const testimonialsData = await testimonialsRes.json()
+          setTestimonials(testimonialsData.testimonials || [])
+        }
+
+        if (fanArtRes.ok) {
+          const fanArtData = await fanArtRes.json()
+          setFanArt(fanArtData.fanArt || [])
+        }
+      } catch (error) {
+        console.error('Error loading community data:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadCommunityData()
+  }, [])
 
   const shareTestimonial = (testimonial: any) => {
-    const text = `"${testimonial.message.substring(0, 100)}..." - ${testimonial.name} from the 999 family 💜`
+    const text = `"${testimonial.testimonial.substring(0, 100)}..." - ${testimonial.name || 'Anonymous'} from the 999 family 💜`
     const url = window.location.href
 
     if (navigator.share) {
@@ -27,7 +58,7 @@ export default function CommunitySection() {
   }
 
   const shareArt = (art: any) => {
-    const text = `Check out this amazing fan art: "${art.title}" by @${art.artist} 🎨 #999Art #JuiceWRLD`
+    const text = `Check out this amazing fan art: "${art.title}" by @${art.artistName} 🎨 #999Art #JuiceWRLD`
     const url = window.location.href
 
     if (navigator.share) {
@@ -42,58 +73,8 @@ export default function CommunitySection() {
     }
   }
 
-  const testimonials = [
-    {
-      name: "Sarah M.",
-      location: "Chicago, IL",
-      message: "Juice saved my life. His music got me through the darkest times. Wearing his merch makes me feel connected to something bigger than myself.",
-      avatar: "S",
-      product: "999 Forever Hoodie",
-      rating: 5
-    },
-    {
-      name: "Marcus T.",
-      location: "Atlanta, GA",
-      message: "The quality is insane and the designs capture his spirit perfectly. Every piece tells a story and keeps his memory alive.",
-      avatar: "M",
-      product: "Legends Never Die Tee",
-      rating: 5
-    },
-    {
-      name: "Luna K.",
-      location: "Los Angeles, CA",
-      message: "I've been in the 999 family since day one. This store brings us all together. The community here is everything Juice represented - love and unity.",
-      avatar: "L",
-      product: "Butterfly Hoodie",
-      rating: 5
-    }
-  ]
-
-  const fanArt = [
-    {
-      artist: "ArtBy999",
-      title: "Lucid Dreams Visual",
-      likes: 12847,
-      type: "digital"
-    },
-    {
-      artist: "ButterflyCraze",
-      title: "999 Portrait",
-      likes: 8921,
-      type: "painting"
-    },
-    {
-      artist: "LegendsArt",
-      title: "Righteous Cover",
-      likes: 15632,
-      type: "design"
-    }
-  ]
-
   const socialStats = [
-    { platform: "Instagram", icon: Instagram, followers: "2.4M", color: "text-pink-400" },
-    { platform: "TikTok", icon: Video, followers: "3.1M", color: "text-white" },
-    { platform: "Twitter", icon: Twitter, followers: "1.8M", color: "text-blue-400" }
+    { platform: "Facebook", icon: Facebook, followers: "242,803", color: "text-blue-400" }
   ]
 
   return (
@@ -148,70 +129,108 @@ export default function CommunitySection() {
             </h3>
 
             <div className="space-y-6">
-              {testimonials.map((testimonial, index) => (
-                <motion.div
-                  key={index}
-                  className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 p-6"
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: index * 0.2 }}
-                  whileHover={{ borderColor: 'rgba(106, 13, 173, 0.5)' }}
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 bg-gradient-to-r from-purple-600 to-green-400 rounded-full flex items-center justify-center font-bold text-white">
-                      {testimonial.avatar}
-                    </div>
-
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h4 className="text-white font-semibold">{testimonial.name}</h4>
-                        <span className="text-gray-400 text-sm">{testimonial.location}</span>
-                      </div>
-
-                      <div className="flex items-center gap-1 mb-3">
-                        {[...Array(testimonial.rating)].map((_, i) => (
-                          <motion.div
-                            key={i}
-                            animate={{ scale: [1, 1.2, 1] }}
-                            transition={{ delay: i * 0.1, duration: 0.5 }}
-                          >
-                            <Heart className="w-4 h-4 text-red-500 fill-red-500" />
-                          </motion.div>
-                        ))}
-                      </div>
-
-                      <p className="text-gray-300 mb-3 leading-relaxed">
-                        "{testimonial.message}"
-                      </p>
-
-                      <div className="flex items-center justify-between">
-                        <span className="text-accent text-sm font-semibold">
-                          Purchased: {testimonial.product}
-                        </span>
-
-                        <div className="flex items-center gap-2">
-                          <motion.button
-                            className="text-gray-400 hover:text-red-500 transition-colors"
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                          >
-                            <Heart className="w-4 h-4" />
-                          </motion.button>
-                          <motion.button
-                            className="text-gray-400 hover:text-blue-400 transition-colors"
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => shareTestimonial(testimonial)}
-                          >
-                            <Share2 className="w-4 h-4" />
-                          </motion.button>
-                        </div>
+              {loading ? (
+                // Loading skeleton
+                [...Array(3)].map((_, index) => (
+                  <div key={index} className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 p-6 animate-pulse">
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 bg-gray-700 rounded-full"></div>
+                      <div className="flex-1 space-y-3">
+                        <div className="h-4 bg-gray-700 rounded w-1/4"></div>
+                        <div className="h-3 bg-gray-700 rounded w-full"></div>
+                        <div className="h-3 bg-gray-700 rounded w-3/4"></div>
                       </div>
                     </div>
                   </div>
+                ))
+              ) : testimonials.length > 0 ? (
+                testimonials.map((testimonial: any, index: number) => (
+                  <motion.div
+                    key={testimonial.id}
+                    className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 p-6"
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: index * 0.2 }}
+                    whileHover={{ borderColor: 'rgba(106, 13, 173, 0.5)' }}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 bg-gradient-to-r from-purple-600 to-green-400 rounded-full flex items-center justify-center font-bold text-white">
+                        {testimonial.name ? testimonial.name.charAt(0).toUpperCase() : 'A'}
+                      </div>
+
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h4 className="text-white font-semibold">{testimonial.name || 'Anonymous'}</h4>
+                          {testimonial.location && <span className="text-gray-400 text-sm">{testimonial.location}</span>}
+                        </div>
+
+                        <div className="flex items-center gap-1 mb-3">
+                          {[...Array(testimonial.rating || 5)].map((_, i) => (
+                            <motion.div
+                              key={i}
+                              animate={{ scale: [1, 1.2, 1] }}
+                              transition={{ delay: i * 0.1, duration: 0.5 }}
+                            >
+                              <Heart className="w-4 h-4 text-red-500 fill-red-500" />
+                            </motion.div>
+                          ))}
+                        </div>
+
+                        <p className="text-gray-300 mb-3 leading-relaxed">
+                          "{testimonial.testimonial}"
+                        </p>
+
+                        <div className="flex items-center justify-between">
+                          {testimonial.productPurchased && (
+                            <span className="text-accent text-sm font-semibold">
+                              Purchased: {testimonial.productPurchased}
+                            </span>
+                          )}
+
+                          <div className="flex items-center gap-2">
+                            <motion.button
+                              className="text-gray-400 hover:text-red-500 transition-colors"
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                            >
+                              <Heart className="w-4 h-4" />
+                            </motion.button>
+                            <motion.button
+                              className="text-gray-400 hover:text-blue-400 transition-colors"
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => shareTestimonial(testimonial)}
+                            >
+                              <Share2 className="w-4 h-4" />
+                            </motion.button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))
+              ) : (
+                // Empty state for testimonials
+                <motion.div
+                  className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 p-12 text-center"
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                >
+                  <Heart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                  <h4 className="text-white font-bold text-xl mb-2">Be the First to Share</h4>
+                  <p className="text-gray-400 mb-6">No fan stories yet. Share your experience with Juice WRLD's music and be the first to inspire others.</p>
+                  <motion.button
+                    className="btn-primary px-6 py-3"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setShowTestimonialModal(true)}
+                  >
+                    Share Your Story
+                  </motion.button>
                 </motion.div>
-              ))}
+              )}
             </div>
           </motion.div>
 
@@ -227,95 +246,136 @@ export default function CommunitySection() {
             </h3>
 
             <div className="space-y-6">
-              {fanArt.map((art, index) => (
+              {loading ? (
+                // Loading skeleton
+                [...Array(3)].map((_, index) => (
+                  <div key={index} className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 overflow-hidden animate-pulse">
+                    <div className="aspect-video bg-gray-700"></div>
+                    <div className="p-6 space-y-3">
+                      <div className="h-4 bg-gray-700 rounded w-3/4"></div>
+                      <div className="h-3 bg-gray-700 rounded w-1/2"></div>
+                    </div>
+                  </div>
+                ))
+              ) : fanArt.length > 0 ? (
+                fanArt.map((art: any, index: number) => (
+                  <motion.div
+                    key={art.id}
+                    className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 overflow-hidden hover:border-accent/50 transition-all duration-300"
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: index * 0.2 }}
+                    whileHover={{ scale: 1.02 }}
+                  >
+                    {/* Art Preview */}
+                    <div className="aspect-video bg-gradient-to-br from-purple-600 via-blue-500 to-green-400 relative overflow-hidden">
+                      {art.fileName ? (
+                        <img
+                          src={`/api/fan-art/image/${art.fileName}`}
+                          alt={art.title}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <motion.div
+                            className="text-white/20 text-6xl font-bold"
+                            animate={{
+                              opacity: [0.2, 0.4, 0.2],
+                              scale: [1, 1.1, 1]
+                            }}
+                            transition={{
+                              duration: 3,
+                              repeat: Infinity,
+                              ease: "easeInOut"
+                            }}
+                          >
+                            999
+                          </motion.div>
+                        </div>
+                      )}
+
+                      {/* Play button overlay */}
+                      <motion.div
+                        className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
+                        whileHover={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+                      >
+                        <motion.div
+                          className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center"
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                        >
+                          <Play className="w-8 h-8 text-white ml-1" />
+                        </motion.div>
+                      </motion.div>
+                    </div>
+
+                    {/* Art Info */}
+                    <div className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-white font-bold text-lg">{art.title}</h4>
+                          <p className="text-gray-400">by @{art.artistName}</p>
+                        </div>
+
+                        <motion.div
+                          className="flex items-center gap-2"
+                          whileHover={{ scale: 1.05 }}
+                        >
+                          <Heart className="w-5 h-5 text-red-500 fill-red-500" />
+                          <span className="text-white font-semibold">
+                            {art.likes?.toLocaleString() || 0}
+                          </span>
+                        </motion.div>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-4">
+                        <span className="px-3 py-1 bg-accent/20 text-accent rounded-full text-sm font-semibold">
+                          {art.type}
+                        </span>
+
+                        <div className="flex items-center gap-2">
+                          <motion.button
+                            className="text-gray-400 hover:text-accent transition-colors"
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                          >
+                            <MessageCircle className="w-5 h-5" />
+                          </motion.button>
+                          <motion.button
+                            className="text-gray-400 hover:text-blue-400 transition-colors"
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => shareArt(art)}
+                          >
+                            <Share2 className="w-5 h-5" />
+                          </motion.button>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))
+              ) : (
+                // Empty state for fan art
                 <motion.div
-                  key={index}
-                  className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 overflow-hidden hover:border-accent/50 transition-all duration-300"
+                  className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 p-12 text-center"
                   initial={{ opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
-                  transition={{ delay: index * 0.2 }}
-                  whileHover={{ scale: 1.02 }}
                 >
-                  {/* Art Preview */}
-                  <div className="aspect-video bg-gradient-to-br from-purple-600 via-blue-500 to-green-400 relative overflow-hidden">
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <motion.div
-                        className="text-white/20 text-6xl font-bold"
-                        animate={{
-                          opacity: [0.2, 0.4, 0.2],
-                          scale: [1, 1.1, 1]
-                        }}
-                        transition={{
-                          duration: 3,
-                          repeat: Infinity,
-                          ease: "easeInOut"
-                        }}
-                      >
-                        999
-                      </motion.div>
-                    </div>
-
-                    {/* Play button overlay */}
-                    <motion.div
-                      className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
-                      whileHover={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
-                    >
-                      <motion.div
-                        className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center"
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                      >
-                        <Play className="w-8 h-8 text-white ml-1" />
-                      </motion.div>
-                    </motion.div>
-                  </div>
-
-                  {/* Art Info */}
-                  <div className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="text-white font-bold text-lg">{art.title}</h4>
-                        <p className="text-gray-400">by @{art.artist}</p>
-                      </div>
-
-                      <motion.div
-                        className="flex items-center gap-2"
-                        whileHover={{ scale: 1.05 }}
-                      >
-                        <Heart className="w-5 h-5 text-red-500 fill-red-500" />
-                        <span className="text-white font-semibold">
-                          {art.likes.toLocaleString()}
-                        </span>
-                      </motion.div>
-                    </div>
-
-                    <div className="flex items-center justify-between mt-4">
-                      <span className="px-3 py-1 bg-accent/20 text-accent rounded-full text-sm font-semibold">
-                        {art.type}
-                      </span>
-
-                      <div className="flex items-center gap-2">
-                        <motion.button
-                          className="text-gray-400 hover:text-accent transition-colors"
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                        >
-                          <MessageCircle className="w-5 h-5" />
-                        </motion.button>
-                        <motion.button
-                          className="text-gray-400 hover:text-blue-400 transition-colors"
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => shareArt(art)}
-                        >
-                          <Share2 className="w-5 h-5" />
-                        </motion.button>
-                      </div>
-                    </div>
-                  </div>
+                  <Play className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                  <h4 className="text-white font-bold text-xl mb-2">Showcase Your Art</h4>
+                  <p className="text-gray-400 mb-6">No fan art submissions yet. Share your creative tributes and be the first to showcase your artwork.</p>
+                  <motion.button
+                    className="btn-secondary px-6 py-3"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setShowFanArtModal(true)}
+                  >
+                    Submit Fan Art
+                  </motion.button>
                 </motion.div>
-              ))}
+              )}
             </div>
           </motion.div>
         </div>
