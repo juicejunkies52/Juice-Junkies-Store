@@ -83,8 +83,8 @@ export async function GET(request: NextRequest) {
       let customerState = 'Unknown'
       if (intent.shipping?.address?.state) {
         customerState = intent.shipping.address.state
-      } else if (intent.charges?.data?.[0]?.billing_details?.address?.state) {
-        customerState = intent.charges.data[0].billing_details.address.state
+      } else if (intent.latest_charge && typeof intent.latest_charge === 'object' && 'billing_details' in intent.latest_charge) {
+        customerState = intent.latest_charge.billing_details?.address?.state || 'Unknown'
       }
 
       csvContent += `${date},${intent.id},${amount},${subtotal},${shipping},${tax},${taxRate},${customerState},${intent.status}\n`

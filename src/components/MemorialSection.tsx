@@ -5,9 +5,17 @@ import { motion } from 'framer-motion'
 import { Heart, Star, Calendar, Users } from 'lucide-react'
 import MemorySubmissionModal from './MemorySubmissionModal'
 
+interface Memory {
+  id: string
+  name: string | null
+  memory: string
+  favoriteSong: string | null
+  createdAt: string
+}
+
 export default function MemorialSection() {
   const [showMemoryModal, setShowMemoryModal] = useState(false)
-  const [memories, setMemories] = useState([])
+  const [memories, setMemories] = useState<Memory[]>([])
   const [loading, setLoading] = useState(true)
   const [memoryStats, setMemoryStats] = useState({ total: 999999 })
 
