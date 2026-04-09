@@ -14,13 +14,14 @@ interface TimeLeft {
 
 export default function LimitedDropBanner() {
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({ days: 0, hours: 0, minutes: 0, seconds: 0 })
-  const [isVisible, setIsVisible] = useState(true)
+  const [isVisible, setIsVisible] = useState(false) // Hidden until real drop date is set
   const [showEarlyAccessModal, setShowEarlyAccessModal] = useState(false)
 
   // Stable sparkle positions to avoid hydration mismatch
   const sparklePositions = [25, 45, 60, 35, 70, 50]
 
-  // Set countdown to 7 days from now
+  // TODO: Set this to your actual drop date when ready
+  // const dropDate = new Date('2025-XX-XX') // Update with real date
   const dropDate = new Date()
   dropDate.setDate(dropDate.getDate() + 7)
 
