@@ -10,12 +10,12 @@ interface LogoProps {
   blendMode?: 'screen' | 'multiply' | 'overlay' | 'normal'
 }
 
-export default function Logo({ className = '', size = 'medium', variant = 'header', blendMode = 'screen' }: LogoProps) {
-  // Size configurations
+export default function Logo({ className = '', size = 'medium', variant = 'header', blendMode = 'normal' }: LogoProps) {
+  // Size configurations (2:3 ratio to match the artwork, no letterboxing)
   const sizeConfig = {
-    small: { width: 120, height: 40 },
-    medium: { width: 180, height: 60 },
-    large: { width: 240, height: 80 }
+    small: { width: 60, height: 90 },
+    medium: { width: 80, height: 120 },
+    large: { width: 160, height: 240 }
   }
 
   const { width, height } = sizeConfig[size]
@@ -34,7 +34,7 @@ export default function Logo({ className = '', size = 'medium', variant = 'heade
         transition={{ duration: 0.2 }}
       >
         <Image
-          src="/juice-junkies-logo.jpg" // Your actual logo file
+          src="/juice-junkies-logo.png" // Your actual logo file
           alt="Juice Junkies Logo"
           width={width}
           height={height}
