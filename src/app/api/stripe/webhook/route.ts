@@ -3,6 +3,7 @@ import { headers } from 'next/headers'
 import { stripe } from '../../../../../lib/stripe'
 import { prisma } from '../../../../../lib/prisma'
 import { fulfillPrintfulOrder } from '../../../../../lib/fulfillOrder'
+import { sendOrderConfirmationEmail } from '../../../../../lib/email'
 import Stripe from 'stripe'
 
 // This is your Stripe CLI webhook secret for testing your endpoint locally
@@ -142,9 +143,33 @@ async function handleDispute(dispute: Stripe.Dispute) {
 }
 
 async function sendOrderConfirmation(paymentIntent: Stripe.PaymentIntent) {
-  // TODO: No email service is configured yet (no Resend/SendGrid API key).
-  // Until one is set up, order confirmations are not actually sent.
-  console.log('📧 Would send order confirmation email to:', paymentIntent.receipt_email)
+  const orderId = paymentIntent.metadata?.orderId
+  if (!orderId) return
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: { items: { include: { product: true } } }
+  })
+
+  if (!order) return
+
+  const result = await sendOrderConfirmationEmail({
+    orderId: order.id,
+    customerEmail: paymentIntent.receipt_email || '',
+    customerName: paymentIntent.shipping?.name,
+    items: order.items.map(item => ({
+      name: item.product.name,
+      quantity: item.quantity,
+      price: item.price
+    })),
+    totalAmount: order.totalAmount
+  })
+
+  if (result.sent) {
+    console.log('📧 Order confirmation sent to:', paymentIntent.receipt_email)
+  } else {
+    console.log('📧 Order confirmation not sent:', result.reason)
+  }
 }
 
 async function fulfillOrder(paymentIntent: Stripe.PaymentIntent) {
