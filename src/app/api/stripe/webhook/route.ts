@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { headers } from 'next/headers'
 import { stripe } from '../../../../../lib/stripe'
+import { prisma } from '../../../../../lib/prisma'
+import { fulfillPrintfulOrder } from '../../../../../lib/fulfillOrder'
 import Stripe from 'stripe'
 
 // This is your Stripe CLI webhook secret for testing your endpoint locally
@@ -38,6 +40,9 @@ export async function POST(request: NextRequest) {
 
       } catch (error) {
         console.error('Error processing successful payment:', error)
+        // Return a non-200 so Stripe retries the webhook instead of silently
+        // treating a failed order write/fulfillment as handled.
+        return NextResponse.json({ error: 'Failed to process payment' }, { status: 500 })
       }
       break
 
@@ -75,27 +80,39 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ received: true })
 }
 
-async function handleSuccessfulPayment(paymentIntent: Stripe.PaymentIntent) {
-  console.log('Processing successful payment:', paymentIntent.id)
+function extractShippingAddress(paymentIntent: Stripe.PaymentIntent) {
+  const shipping = paymentIntent.shipping
 
-  // Extract order details from metadata
-  const orderData = {
-    paymentIntentId: paymentIntent.id,
-    amount: paymentIntent.amount / 100, // Convert from cents
-    currency: paymentIntent.currency,
-    customerEmail: paymentIntent.receipt_email,
-    status: 'paid',
-    metadata: paymentIntent.metadata,
-    shippingAddress: paymentIntent.shipping?.address,
-    customerName: paymentIntent.shipping?.name,
-    createdAt: new Date(paymentIntent.created * 1000)
+  return {
+    name: shipping?.name || '',
+    address: shipping?.address?.line1 || '',
+    city: shipping?.address?.city || '',
+    state: shipping?.address?.state || '',
+    zipCode: shipping?.address?.postal_code || '',
+    country: shipping?.address?.country || 'US',
+    email: paymentIntent.receipt_email || undefined
+  }
+}
+
+async function handleSuccessfulPayment(paymentIntent: Stripe.PaymentIntent) {
+  const orderId = paymentIntent.metadata?.orderId
+
+  if (!orderId) {
+    // Should not happen for orders created via /api/checkout, which always
+    // stamps the order id into the PaymentIntent metadata.
+    throw new Error(`payment_intent.succeeded with no orderId in metadata: ${paymentIntent.id}`)
   }
 
-  // TODO: Save to database when Prisma is set up
-  console.log('Order data:', orderData)
+  await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      status: 'paid',
+      stripePaymentIntentId: paymentIntent.id,
+      shippingAddress: JSON.stringify(extractShippingAddress(paymentIntent))
+    }
+  })
 
-  // For now, just log the successful payment
-  console.log('✅ Order processed successfully')
+  console.log('✅ Order marked as paid:', orderId)
 }
 
 async function handleFailedPayment(paymentIntent: Stripe.PaymentIntent) {
@@ -125,17 +142,26 @@ async function handleDispute(dispute: Stripe.Dispute) {
 }
 
 async function sendOrderConfirmation(paymentIntent: Stripe.PaymentIntent) {
-  // TODO: Implement email service (Resend, SendGrid, etc.)
+  // TODO: No email service is configured yet (no Resend/SendGrid API key).
+  // Until one is set up, order confirmations are not actually sent.
   console.log('📧 Would send order confirmation email to:', paymentIntent.receipt_email)
 }
 
 async function fulfillOrder(paymentIntent: Stripe.PaymentIntent) {
+  const orderId = paymentIntent.metadata?.orderId
+  if (!orderId) return
+
   // Skip fulfillment in demo mode
   if (process.env.PRINTFUL_API_TOKEN === 'demo') {
     console.log('📦 Demo mode: Skipping Printful fulfillment')
     return
   }
 
-  // TODO: Create Printful order when ready for production
-  console.log('📦 Would create Printful order for:', paymentIntent.id)
+  const result = await fulfillPrintfulOrder(orderId)
+
+  if (result.skipped) {
+    console.log(`📦 Fulfillment skipped for order ${orderId}: ${result.reason}`)
+  } else {
+    console.log(`📦 Printful order created for ${orderId}:`, result.printfulOrder?.id)
+  }
 }
