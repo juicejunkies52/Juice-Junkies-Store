@@ -51,12 +51,19 @@ export async function sendOrderConfirmationEmail(data: OrderConfirmationData): P
   `
 
   try {
-    await resend.emails.send({
+    const { error } = await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL || 'Juice Junkies <orders@juicejunkies.shop>',
       to: data.customerEmail,
       subject: `Order Confirmed - #${data.orderId.slice(-8).toUpperCase()}`,
       html
     })
+
+    // The Resend SDK reports API errors (e.g. unverified sending domain) via
+    // this `error` field rather than throwing.
+    if (error) {
+      return { sent: false, reason: error.message }
+    }
+
     return { sent: true }
   } catch (error) {
     return { sent: false, reason: error instanceof Error ? error.message : 'Unknown error' }
