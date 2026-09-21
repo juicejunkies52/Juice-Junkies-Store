@@ -20,8 +20,9 @@ export async function POST(request: NextRequest) {
 
     for (const printfulProduct of printfulProducts) {
       try {
-        // Get detailed product info with variants
-        const productDetails = await printfulService.getProduct(printfulProduct.external_id)
+        // Get detailed product info with variants. Printful's product-detail
+        // endpoint expects the numeric sync product id, not our external_id.
+        const productDetails = await printfulService.getProduct(printfulProduct.id.toString())
 
         // Check if product already exists in our database
         const existingProduct = await prisma.product.findFirst({
