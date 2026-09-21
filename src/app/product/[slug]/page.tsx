@@ -54,8 +54,8 @@ export default function ProductPage() {
     try {
       const response = await fetch(`/api/products/${slug}`)
       const data = await response.json()
-      if (data.success) {
-        setProduct(data.product)
+      if (response.ok) {
+        setProduct(data)
       }
     } catch (error) {
       console.error('Failed to fetch product:', error)
