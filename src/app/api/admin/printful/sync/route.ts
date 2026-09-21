@@ -11,6 +11,27 @@ function generateSlug(name: string): string {
     .replace(/(^-|-$)/g, '')
 }
 
+// Printful gives each variant (color/angle) its own preview image rather than
+// one image per product. Collect every distinct preview across all variants
+// so the product page can show a real gallery instead of a single photo.
+function getPreviewImages(productDetails: any, fallback?: string): string[] {
+  const urls = new Set<string>()
+
+  for (const variant of productDetails.sync_variants || []) {
+    for (const file of variant.files || []) {
+      if (file.type === 'preview' && file.preview_url) {
+        urls.add(file.preview_url)
+      }
+    }
+  }
+
+  if (urls.size === 0 && fallback) {
+    urls.add(fallback)
+  }
+
+  return Array.from(urls)
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Get all products from Printful
@@ -29,14 +50,16 @@ export async function POST(request: NextRequest) {
           where: { printfulExtId: printfulProduct.external_id }
         })
 
+        const previewImages = getPreviewImages(productDetails, printfulProduct.thumbnail_url)
+
         if (existingProduct) {
           // Update existing product
           const updatedProduct = await prisma.product.update({
             where: { id: existingProduct.id },
             data: {
               name: printfulProduct.name,
-              images: JSON.stringify([printfulProduct.thumbnail_url]),
-              mockupImages: JSON.stringify([productDetails.sync_product.thumbnail_url]),
+              images: JSON.stringify(previewImages),
+              mockupImages: JSON.stringify(previewImages),
               printfulId: printfulProduct.id.toString(),
               fulfillmentType: 'printful',
               status: printfulProduct.is_ignored ? 'archived' : 'active',
@@ -71,13 +94,13 @@ export async function POST(request: NextRequest) {
               slug: slug,
               description: `High-quality ${printfulProduct.name} - Print-on-demand`,
               price: price,
-              images: JSON.stringify([printfulProduct.thumbnail_url]),
+              images: JSON.stringify(previewImages),
               tags: JSON.stringify(['printful', 'print-on-demand']),
               status: printfulProduct.is_ignored ? 'archived' : 'active',
               fulfillmentType: 'printful',
               printfulId: printfulProduct.id.toString(),
               printfulExtId: printfulProduct.external_id,
-              mockupImages: JSON.stringify([productDetails.sync_product.thumbnail_url]),
+              mockupImages: JSON.stringify(previewImages),
               inventoryQty: 999, // Print-on-demand has unlimited inventory
             }
           })
