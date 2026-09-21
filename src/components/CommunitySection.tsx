@@ -74,7 +74,7 @@ export default function CommunitySection() {
   }
 
   const socialStats = [
-    { platform: "Facebook", icon: Facebook, followers: "242,803", color: "text-blue-400" }
+    { platform: "Facebook", icon: Facebook, followers: "257,707", color: "text-blue-400" }
   ]
 
   return (
