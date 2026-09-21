@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error creating payment intent:', error)
     return NextResponse.json(
-      { error: 'Failed to create payment intent' },
+      { error: 'Failed to create payment intent', debugDetails: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     )
   }
