@@ -223,8 +223,8 @@ function OrderSuccessContent() {
           >
             <p className="text-gray-400 text-sm">
               Need help? Contact us at{' '}
-              <a href="mailto:support@999store.com" className="text-accent hover:text-accent/80">
-                support@999store.com
+              <a href="mailto:support@juicejunkies.shop" className="text-accent hover:text-accent/80">
+                support@juicejunkies.shop
               </a>
             </p>
           </motion.div>
