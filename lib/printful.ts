@@ -4,17 +4,10 @@ export interface PrintfulProduct {
   id: number
   external_id: string
   name: string
-  thumbnail: string
+  variants: number
+  synced: number
+  thumbnail_url: string
   is_ignored: boolean
-  variant_count: number
-  sync_product: {
-    id: number
-    external_id: string
-    name: string
-    synced: number
-    thumbnail_url: string
-    is_ignored: boolean
-  }
 }
 
 export interface PrintfulVariant {

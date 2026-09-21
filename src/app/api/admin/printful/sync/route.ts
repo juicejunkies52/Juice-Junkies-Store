@@ -35,11 +35,11 @@ export async function POST(request: NextRequest) {
             where: { id: existingProduct.id },
             data: {
               name: printfulProduct.name,
-              images: JSON.stringify([printfulProduct.thumbnail]),
+              images: JSON.stringify([printfulProduct.thumbnail_url]),
               mockupImages: JSON.stringify([productDetails.sync_product.thumbnail_url]),
               printfulId: printfulProduct.id.toString(),
               fulfillmentType: 'printful',
-              status: printfulProduct.sync_product.is_ignored ? 'archived' : 'active',
+              status: printfulProduct.is_ignored ? 'archived' : 'active',
               updatedAt: new Date()
             }
           })
@@ -71,9 +71,9 @@ export async function POST(request: NextRequest) {
               slug: slug,
               description: `High-quality ${printfulProduct.name} - Print-on-demand`,
               price: price,
-              images: JSON.stringify([printfulProduct.thumbnail]),
+              images: JSON.stringify([printfulProduct.thumbnail_url]),
               tags: JSON.stringify(['printful', 'print-on-demand']),
-              status: printfulProduct.sync_product.is_ignored ? 'archived' : 'active',
+              status: printfulProduct.is_ignored ? 'archived' : 'active',
               fulfillmentType: 'printful',
               printfulId: printfulProduct.id.toString(),
               printfulExtId: printfulProduct.external_id,
