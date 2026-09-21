@@ -36,6 +36,9 @@ export const getStripeInstance = (): Stripe => {
 
     stripeInstance = new Stripe(stripeSecretKey, {
       apiVersion: '2025-10-29.clover',
+      // Stripe's default Node HTTP client can fail with connection errors on
+      // Vercel's serverless runtime; the fetch-based client is more reliable there.
+      httpClient: Stripe.createFetchHttpClient(),
     })
   }
 
