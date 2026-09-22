@@ -32,6 +32,38 @@ function getPreviewImages(productDetails: any, fallback?: string): string[] {
   return Array.from(urls)
 }
 
+// Upsert one Variant row per Printful sync_variant (color/size combo), keyed
+// by Printful's own variant external_id so fulfillment can submit orders
+// against the exact variant the customer picked, not just the base product.
+async function syncVariants(productId: string, productDetails: any) {
+  for (const sv of productDetails.sync_variants || []) {
+    const price = parseFloat(sv.retail_price)
+    const inventoryQty = sv.availability_status === 'active' ? 999 : 0
+
+    await prisma.variant.upsert({
+      where: { printfulExtId: sv.external_id },
+      update: {
+        productId,
+        size: sv.size || null,
+        color: sv.color || null,
+        price: Number.isNaN(price) ? null : price,
+        sku: sv.sku || null,
+        inventoryQty,
+        updatedAt: new Date()
+      },
+      create: {
+        productId,
+        size: sv.size || null,
+        color: sv.color || null,
+        price: Number.isNaN(price) ? null : price,
+        sku: sv.sku || null,
+        printfulExtId: sv.external_id,
+        inventoryQty
+      }
+    })
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Get all products from Printful
@@ -66,6 +98,8 @@ export async function POST(request: NextRequest) {
               updatedAt: new Date()
             }
           })
+
+          await syncVariants(updatedProduct.id, productDetails)
 
           syncResults.push({
             action: 'updated',
@@ -104,6 +138,8 @@ export async function POST(request: NextRequest) {
               inventoryQty: 999, // Print-on-demand has unlimited inventory
             }
           })
+
+          await syncVariants(newProduct.id, productDetails)
 
           syncResults.push({
             action: 'created',

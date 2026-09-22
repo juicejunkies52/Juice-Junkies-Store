@@ -18,6 +18,15 @@ import { useParams } from 'next/navigation'
 import { useCart } from '../../../contexts/CartContext'
 import ProductImage from '../../../components/ProductImage'
 
+interface Variant {
+  id: string
+  size?: string
+  color?: string
+  price?: number
+  inventoryQty: number
+  sku?: string
+}
+
 interface Product {
   id: string
   name: string
@@ -30,6 +39,7 @@ interface Product {
   inventoryQty: number
   status: string
   fulfillmentType: string
+  variants: Variant[]
   category?: {
     name: string
     slug: string
@@ -43,6 +53,7 @@ export default function ProductPage() {
   const [loading, setLoading] = useState(true)
   const [quantity, setQuantity] = useState(1)
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null)
 
   useEffect(() => {
     if (slug) {
@@ -56,6 +67,9 @@ export default function ProductPage() {
       const data = await response.json()
       if (response.ok) {
         setProduct(data)
+        if (data.variants?.length > 0) {
+          setSelectedVariantId(data.variants[0].id)
+        }
       }
     } catch (error) {
       console.error('Failed to fetch product:', error)
@@ -64,6 +78,10 @@ export default function ProductPage() {
     }
   }
 
+  const selectedVariant = product?.variants.find(v => v.id === selectedVariantId) || null
+  const displayPrice = selectedVariant?.price ?? product?.price ?? 0
+  const displayInventory = selectedVariant?.inventoryQty ?? product?.inventoryQty ?? 0
+
   const handleAddToCart = () => {
     if (!product) return
 
@@ -71,21 +89,23 @@ export default function ProductPage() {
       productId: product.id,
       name: product.name,
       slug: product.slug,
-      price: product.price,
+      price: displayPrice,
       quantity: quantity,
+      variantId: selectedVariant?.id,
+      variantSize: selectedVariant ? [selectedVariant.color, selectedVariant.size].filter(Boolean).join(' / ') : undefined,
       image: product.images[0],
-      maxQuantity: product.inventoryQty
+      maxQuantity: displayInventory
     })
 
     setCartOpen(true)
   }
 
   const discount = product?.compareAtPrice
-    ? Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)
+    ? Math.round(((product.compareAtPrice - displayPrice) / product.compareAtPrice) * 100)
     : 0
 
-  const isLowStock = product && product.inventoryQty <= 10
-  const isOutOfStock = product && product.inventoryQty === 0
+  const isLowStock = product && displayInventory <= 10
+  const isOutOfStock = product && displayInventory === 0
 
   if (loading) {
     return (
@@ -232,7 +252,7 @@ export default function ProductPage() {
               {/* Price */}
               <div className="flex items-center gap-4 mb-6">
                 <span className="text-4xl font-bold text-white">
-                  ${product.price.toFixed(2)}
+                  ${displayPrice.toFixed(2)}
                 </span>
                 {product.compareAtPrice && (
                   <span className="text-xl text-gray-400 line-through">
@@ -249,6 +269,41 @@ export default function ProductPage() {
                 </div>
               )}
             </div>
+
+            {/* Variant Selector */}
+            {product.variants.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Options
+                </label>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {product.variants.map((variant) => {
+                    const label = [variant.color, variant.size].filter(Boolean).join(' / ') || 'Option'
+                    const isSelected = variant.id === selectedVariantId
+                    const variantOutOfStock = variant.inventoryQty === 0
+                    return (
+                      <button
+                        key={variant.id}
+                        onClick={() => {
+                          setSelectedVariantId(variant.id)
+                          setQuantity(1)
+                        }}
+                        disabled={variantOutOfStock}
+                        className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-colors ${
+                          variantOutOfStock
+                            ? 'border-gray-800 text-gray-600 cursor-not-allowed'
+                            : isSelected
+                            ? 'border-accent text-accent bg-accent/10'
+                            : 'border-gray-700 text-gray-300 hover:border-gray-500'
+                        }`}
+                      >
+                        {label}{variantOutOfStock ? ' (Out of stock)' : ''}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Quantity Selector */}
             <div>
@@ -267,9 +322,9 @@ export default function ProductPage() {
                   {quantity}
                 </span>
                 <button
-                  onClick={() => setQuantity(Math.min(product.inventoryQty, quantity + 1))}
+                  onClick={() => setQuantity(Math.min(displayInventory, quantity + 1))}
                   className="p-2 border border-gray-600 hover:border-gray-500 rounded-lg transition-colors"
-                  disabled={quantity >= product.inventoryQty}
+                  disabled={quantity >= displayInventory}
                 >
                   <Plus className="w-4 h-4 text-gray-400" />
                 </button>
@@ -280,9 +335,9 @@ export default function ProductPage() {
                 {isOutOfStock ? (
                   <p className="text-red-400 text-sm">Out of stock</p>
                 ) : isLowStock ? (
-                  <p className="text-yellow-400 text-sm">Only {product.inventoryQty} left!</p>
+                  <p className="text-yellow-400 text-sm">Only {displayInventory} left!</p>
                 ) : (
-                  <p className="text-green-400 text-sm">In stock ({product.inventoryQty} available)</p>
+                  <p className="text-green-400 text-sm">In stock ({displayInventory} available)</p>
                 )}
               </div>
             </div>

@@ -63,7 +63,10 @@ export async function fulfillPrintfulOrder(orderId: string): Promise<FulfillResu
       email: shippingAddress.email
     },
     items: printfulItems.map(item => ({
-      external_variant_id: item.product.printfulExtId || item.product.id,
+      // Prefer the specific variant's own Printful external id (each
+      // color/size combo has its own) -- falling back to the product-level
+      // id only for products with no variants at all.
+      external_variant_id: item.variant?.printfulExtId || item.product.printfulExtId || item.product.id,
       quantity: item.quantity,
       retail_price: item.price.toString()
     }))

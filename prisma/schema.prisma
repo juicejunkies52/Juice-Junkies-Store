@@ -56,17 +56,18 @@ model Product {
 }
 
 model Variant {
-  id           String      @id @default(cuid())
-  productId    String
-  size         String?
-  color        String?
-  price        Float?
-  inventoryQty Int         @default(0)
-  sku          String?     @unique
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  orderItems   OrderItem[]
-  product      Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  id            String      @id @default(cuid())
+  productId     String
+  size          String?
+  color         String?
+  price         Float?
+  inventoryQty  Int         @default(0)
+  sku           String?     @unique
+  printfulExtId String?     @unique
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  orderItems    OrderItem[]
+  product       Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
 }
 
 model Order {
