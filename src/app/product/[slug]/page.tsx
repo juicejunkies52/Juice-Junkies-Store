@@ -25,6 +25,7 @@ interface Variant {
   price?: number
   inventoryQty: number
   sku?: string
+  image?: string
 }
 
 interface Product {
@@ -68,7 +69,14 @@ export default function ProductPage() {
       if (response.ok) {
         setProduct(data)
         if (data.variants?.length > 0) {
-          setSelectedVariantId(data.variants[0].id)
+          const firstVariant = data.variants[0]
+          setSelectedVariantId(firstVariant.id)
+          if (firstVariant.image) {
+            const imageIndex = data.images.indexOf(firstVariant.image)
+            if (imageIndex !== -1) {
+              setSelectedImageIndex(imageIndex)
+            }
+          }
         }
       }
     } catch (error) {
@@ -287,6 +295,12 @@ export default function ProductPage() {
                         onClick={() => {
                           setSelectedVariantId(variant.id)
                           setQuantity(1)
+                          if (variant.image) {
+                            const imageIndex = product.images.indexOf(variant.image)
+                            if (imageIndex !== -1) {
+                              setSelectedImageIndex(imageIndex)
+                            }
+                          }
                         }}
                         disabled={variantOutOfStock}
                         className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-colors ${

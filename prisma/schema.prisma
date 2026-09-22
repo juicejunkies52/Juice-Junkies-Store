@@ -64,6 +64,7 @@ model Variant {
   inventoryQty  Int         @default(0)
   sku           String?     @unique
   printfulExtId String?     @unique
+  image         String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   orderItems    OrderItem[]

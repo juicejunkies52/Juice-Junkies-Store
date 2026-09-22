@@ -39,6 +39,8 @@ async function syncVariants(productId: string, productDetails: any) {
   for (const sv of productDetails.sync_variants || []) {
     const price = parseFloat(sv.retail_price)
     const inventoryQty = sv.availability_status === 'active' ? 999 : 0
+    const previewFile = (sv.files || []).find((f: any) => f.type === 'preview')
+    const image = previewFile?.preview_url || null
 
     await prisma.variant.upsert({
       where: { printfulExtId: sv.external_id },
@@ -48,6 +50,7 @@ async function syncVariants(productId: string, productDetails: any) {
         color: sv.color || null,
         price: Number.isNaN(price) ? null : price,
         sku: sv.sku || null,
+        image,
         inventoryQty,
         updatedAt: new Date()
       },
@@ -58,6 +61,7 @@ async function syncVariants(productId: string, productDetails: any) {
         price: Number.isNaN(price) ? null : price,
         sku: sv.sku || null,
         printfulExtId: sv.external_id,
+        image,
         inventoryQty
       }
     })
