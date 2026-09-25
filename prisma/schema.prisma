@@ -162,6 +162,7 @@ model FanArt {
   type         String
   description  String?
   socialHandle String?
+  url          String
   fileName     String
   fileSize     Int
   mimeType     String

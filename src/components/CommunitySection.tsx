@@ -270,9 +270,9 @@ export default function CommunitySection() {
                   >
                     {/* Art Preview */}
                     <div className="aspect-video bg-gradient-to-br from-purple-600 via-blue-500 to-green-400 relative overflow-hidden">
-                      {art.fileName ? (
+                      {art.url ? (
                         <img
-                          src={`/api/fan-art/image/${art.fileName}`}
+                          src={art.url}
                           alt={art.title}
                           className="w-full h-full object-cover"
                         />
