@@ -3,32 +3,47 @@ import { jwtVerify } from 'jose'
 
 const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'your-secret-key')
 
+// Paths that must stay reachable without an admin-token cookie: the login
+// page/endpoint itself (or nothing could ever log in), and setup (which is
+// self-protected -- requires the setup key and refuses once an admin exists).
+const PUBLIC_ADMIN_PATHS = new Set([
+  '/admin/login',
+  '/admin/setup',
+  '/api/admin/setup',
+  '/api/admin/auth/login'
+])
+
 export async function middleware(request: NextRequest) {
-  // Only protect admin routes
-  if (request.nextUrl.pathname.startsWith('/admin')) {
-    // Skip login and first-time setup pages (setup is self-protected: it
-    // requires the setup key and refuses to run once an admin exists)
-    if (request.nextUrl.pathname === '/admin/login' || request.nextUrl.pathname === '/admin/setup') {
-      return NextResponse.next()
-    }
+  const { pathname } = request.nextUrl
+  const isAdminApi = pathname.startsWith('/api/admin')
+  const isAdminPage = pathname.startsWith('/admin')
 
-    const token = request.cookies.get('admin-token')?.value
-
-    if (!token) {
-      return NextResponse.redirect(new URL('/admin/login', request.url))
-    }
-
-    try {
-      await jwtVerify(token, secret)
-      return NextResponse.next()
-    } catch (error) {
-      return NextResponse.redirect(new URL('/admin/login', request.url))
-    }
+  if (!isAdminApi && !isAdminPage) {
+    return NextResponse.next()
   }
 
-  return NextResponse.next()
+  if (PUBLIC_ADMIN_PATHS.has(pathname)) {
+    return NextResponse.next()
+  }
+
+  const token = request.cookies.get('admin-token')?.value
+  const denied = () =>
+    isAdminApi
+      ? NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      : NextResponse.redirect(new URL('/admin/login', request.url))
+
+  if (!token) {
+    return denied()
+  }
+
+  try {
+    await jwtVerify(token, secret)
+    return NextResponse.next()
+  } catch (error) {
+    return denied()
+  }
 }
 
 export const config = {
-  matcher: ['/admin/:path*']
+  matcher: ['/admin/:path*', '/api/admin/:path*']
 }
