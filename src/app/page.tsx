@@ -95,6 +95,7 @@ export default function Home() {
         >
           <a href="/shop" className="text-white hover:text-accent transition-colors">Shop</a>
           <a href="#collections" className="text-white hover:text-accent transition-colors">Collections</a>
+          <a href="/lyrics" className="text-white hover:text-accent transition-colors">Lyrics</a>
           <a href="#about" className="text-white hover:text-accent transition-colors">About</a>
           <CartIcon />
         </motion.div>
