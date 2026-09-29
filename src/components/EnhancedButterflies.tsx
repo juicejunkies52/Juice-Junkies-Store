@@ -1,6 +1,6 @@
 'use client'
 
-import { motion } from 'framer-motion'
+import { motion, TargetAndTransition, Transition } from 'framer-motion'
 import { useEffect, useState } from 'react'
 
 interface Butterfly {
@@ -14,8 +14,56 @@ interface Butterfly {
   duration: number
 }
 
+interface FloatingNumber {
+  id: number
+  x: number
+  y: number
+  size: number
+  color: string
+  delay: number
+  duration: number
+}
+
+// Wraps a floating element with drag-and-fling support. While it's being
+// auto-animated (flying its scripted path), dragging is still allowed at any
+// time; once grabbed, the scripted animation stops for good and framer-motion's
+// drag momentum takes over, so releasing it "slings" it with real velocity
+// instead of snapping back to the flight path.
+function Draggable({
+  autoAnimate,
+  transition,
+  initial,
+  className,
+  children
+}: {
+  autoAnimate: TargetAndTransition
+  transition: Transition
+  initial: TargetAndTransition
+  className?: string
+  children: React.ReactNode
+}) {
+  const [grabbed, setGrabbed] = useState(false)
+
+  return (
+    <motion.div
+      className={`pointer-events-auto cursor-grab active:cursor-grabbing ${className || ''}`}
+      initial={initial}
+      animate={grabbed ? undefined : autoAnimate}
+      transition={grabbed ? { type: 'spring', stiffness: 300, damping: 20 } : transition}
+      drag
+      dragMomentum
+      dragElastic={0.2}
+      whileDrag={{ scale: 1.3 }}
+      onDragStart={() => setGrabbed(true)}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
 export default function EnhancedButterflies() {
   const [butterflies, setButterflies] = useState<Butterfly[]>([])
+  const [numbers, setNumbers] = useState<FloatingNumber[]>([])
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -39,22 +87,28 @@ export default function EnhancedButterflies() {
       delay: Math.random() * 10,
       duration: 15 + Math.random() * 10
     }))
-
     setButterflies(newButterflies)
+
+    // Create floating grabbable 999s (replaces the old non-interactive
+    // canvas-drawn ones)
+    const newNumbers: FloatingNumber[] = Array.from({ length: 7 }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      size: 24 + Math.random() * 28,
+      color: Math.random() > 0.5 ? '#6a0dad' : '#39ff14',
+      delay: Math.random() * 8,
+      duration: 18 + Math.random() * 12
+    }))
+    setNumbers(newNumbers)
   }, [])
 
   if (!mounted) return null
 
-  const butterflyPaths = {
-    path1: "M0,0 Q25,-20 50,0 Q75,20 100,0 Q125,-15 150,5 Q175,25 200,10",
-    path2: "M0,0 Q-25,30 -50,10 Q-75,-20 -100,0 Q-125,25 -150,-5 Q-175,-30 -200,-10",
-    path3: "M0,0 Q30,40 60,20 Q90,-30 120,10 Q150,50 180,30 Q210,-20 240,0"
-  }
-
   return (
     <div className="fixed inset-0 pointer-events-none z-30 overflow-hidden">
       {butterflies.map((butterfly) => (
-        <motion.div
+        <Draggable
           key={butterfly.id}
           className={`absolute ${butterfly.color}`}
           initial={{
@@ -64,7 +118,7 @@ export default function EnhancedButterflies() {
             scale: 0,
             opacity: 0
           }}
-          animate={{
+          autoAnimate={{
             x: [
               `${butterfly.x}vw`,
               `${(butterfly.x + 30) % 100}vw`,
@@ -89,7 +143,7 @@ export default function EnhancedButterflies() {
             duration: butterfly.duration,
             delay: butterfly.delay,
             repeat: Infinity,
-            ease: "easeInOut"
+            ease: 'easeInOut'
           }}
         >
           {/* Butterfly SVG */}
@@ -263,14 +317,60 @@ export default function EnhancedButterflies() {
               />
             ))}
           </motion.div>
-        </motion.div>
+        </Draggable>
+      ))}
+
+      {/* Floating grabbable 999s */}
+      {numbers.map((num) => (
+        <Draggable
+          key={`num-${num.id}`}
+          className="absolute font-bold select-none"
+          initial={{
+            x: `${num.x}vw`,
+            y: `${num.y}vh`,
+            opacity: 0,
+            scale: 0
+          }}
+          autoAnimate={{
+            x: [
+              `${num.x}vw`,
+              `${(num.x + 25) % 100}vw`,
+              `${(num.x - 15) % 100}vw`,
+              `${num.x}vw`
+            ],
+            y: [
+              `${num.y}vh`,
+              `${(num.y - 15) % 100}vh`,
+              `${(num.y + 20) % 100}vh`,
+              `${num.y}vh`
+            ],
+            opacity: [0, 0.5, 0.5, 0],
+            scale: [0, 1, 1, 0]
+          }}
+          transition={{
+            duration: num.duration,
+            delay: num.delay,
+            repeat: Infinity,
+            ease: 'easeInOut'
+          }}
+        >
+          <span
+            style={{
+              fontSize: num.size,
+              color: num.color,
+              textShadow: `0 0 15px ${num.color}, 0 0 5px ${num.color}`
+            }}
+          >
+            999
+          </span>
+        </Draggable>
       ))}
 
       {/* Special 999 Butterfly */}
-      <motion.div
-        className="absolute text-accent/80"
+      <Draggable
+        className="text-accent/80"
         initial={{ x: '-10%', y: '50%', scale: 0, opacity: 0 }}
-        animate={{
+        autoAnimate={{
           x: ['110%', '50%', '110%'],
           y: ['50%', '30%', '70%', '50%'],
           scale: [0, 1.5, 1.5, 0],
@@ -323,7 +423,7 @@ export default function EnhancedButterflies() {
             999
           </motion.div>
         </div>
-      </motion.div>
+      </Draggable>
     </div>
   )
 }
