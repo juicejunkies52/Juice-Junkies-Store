@@ -3,7 +3,7 @@ import { headers } from 'next/headers'
 import { stripe } from '../../../../../lib/stripe'
 import { prisma } from '../../../../../lib/prisma'
 import { fulfillPrintfulOrder } from '../../../../../lib/fulfillOrder'
-import { sendOrderConfirmationEmail } from '../../../../../lib/email'
+import { sendOrderConfirmationEmail, sendAdminOrderNotificationEmail } from '../../../../../lib/email'
 import Stripe from 'stripe'
 
 // This is your Stripe CLI webhook secret for testing your endpoint locally
@@ -169,6 +169,27 @@ async function sendOrderConfirmation(paymentIntent: Stripe.PaymentIntent) {
     console.log('📧 Order confirmation sent to:', paymentIntent.receipt_email)
   } else {
     console.log('📧 Order confirmation not sent:', result.reason)
+  }
+
+  const admin = await prisma.admin.findFirst({ select: { email: true } })
+  if (admin?.email) {
+    const adminResult = await sendAdminOrderNotificationEmail({
+      adminEmail: admin.email,
+      orderId: order.id,
+      customerEmail: paymentIntent.receipt_email || '',
+      items: order.items.map(item => ({
+        name: item.product.name,
+        quantity: item.quantity,
+        price: item.price
+      })),
+      totalAmount: order.totalAmount
+    })
+
+    if (adminResult.sent) {
+      console.log('📧 Admin order notification sent to:', admin.email)
+    } else {
+      console.log('📧 Admin order notification not sent:', adminResult.reason)
+    }
   }
 }
 

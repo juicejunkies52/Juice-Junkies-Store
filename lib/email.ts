@@ -69,3 +69,56 @@ export async function sendOrderConfirmationEmail(data: OrderConfirmationData): P
     return { sent: false, reason: error instanceof Error ? error.message : 'Unknown error' }
   }
 }
+
+interface AdminOrderNotificationData {
+  adminEmail: string
+  orderId: string
+  customerEmail: string
+  items: OrderConfirmationItem[]
+  totalAmount: number
+}
+
+export async function sendAdminOrderNotificationEmail(data: AdminOrderNotificationData): Promise<SendResult> {
+  if (!resend) {
+    return { sent: false, reason: 'RESEND_API_KEY not configured' }
+  }
+
+  const itemsHtml = data.items
+    .map(
+      item =>
+        `<tr><td style="padding:8px 0;">${item.name} &times; ${item.quantity}</td><td style="padding:8px 0; text-align:right;">$${(item.price * item.quantity).toFixed(2)}</td></tr>`
+    )
+    .join('')
+
+  const html = `
+    <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; color: #111;">
+      <h1 style="font-size: 20px;">New order: #${data.orderId.slice(-8).toUpperCase()}</h1>
+      <p>From: ${data.customerEmail || 'no email provided'}</p>
+      <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">
+        ${itemsHtml}
+        <tr>
+          <td style="padding: 12px 0; border-top: 1px solid #ddd; font-weight: bold;">Total</td>
+          <td style="padding: 12px 0; border-top: 1px solid #ddd; text-align: right; font-weight: bold;">$${data.totalAmount.toFixed(2)}</td>
+        </tr>
+      </table>
+      <p>View and fulfill it in the <a href="https://www.juicejunkies.shop/admin/orders">admin dashboard</a>.</p>
+    </div>
+  `
+
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'Juice Junkies <orders@juicejunkies.shop>',
+      to: data.adminEmail,
+      subject: `New order - #${data.orderId.slice(-8).toUpperCase()} ($${data.totalAmount.toFixed(2)})`,
+      html
+    })
+
+    if (error) {
+      return { sent: false, reason: error.message }
+    }
+
+    return { sent: true }
+  } catch (error) {
+    return { sent: false, reason: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}

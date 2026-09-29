@@ -25,7 +25,7 @@ interface Variant {
   price?: number
   inventoryQty: number
   sku?: string
-  image?: string
+  images: string[]
 }
 
 interface Product {
@@ -69,14 +69,7 @@ export default function ProductPage() {
       if (response.ok) {
         setProduct(data)
         if (data.variants?.length > 0) {
-          const firstVariant = data.variants[0]
-          setSelectedVariantId(firstVariant.id)
-          if (firstVariant.image) {
-            const imageIndex = data.images.indexOf(firstVariant.image)
-            if (imageIndex !== -1) {
-              setSelectedImageIndex(imageIndex)
-            }
-          }
+          setSelectedVariantId(data.variants[0].id)
         }
       }
     } catch (error) {
@@ -89,6 +82,9 @@ export default function ProductPage() {
   const selectedVariant = product?.variants.find(v => v.id === selectedVariantId) || null
   const displayPrice = selectedVariant?.price ?? product?.price ?? 0
   const displayInventory = selectedVariant?.inventoryQty ?? product?.inventoryQty ?? 0
+  // A selected variant's own photos (e.g. front + back for that color) take
+  // over the gallery; falls back to the product's full image set otherwise.
+  const galleryImages = selectedVariant?.images.length ? selectedVariant.images : product?.images ?? []
 
   const handleAddToCart = () => {
     if (!product) return
@@ -101,7 +97,7 @@ export default function ProductPage() {
       quantity: quantity,
       variantId: selectedVariant?.id,
       variantSize: selectedVariant ? [selectedVariant.color, selectedVariant.size].filter(Boolean).join(' / ') : undefined,
-      image: product.images[0],
+      image: galleryImages[0] || product.images[0],
       maxQuantity: displayInventory
     })
 
@@ -185,7 +181,7 @@ export default function ProductPage() {
             {/* Main Image */}
             <div className="aspect-square bg-gray-900/50 rounded-xl overflow-hidden relative">
               <ProductImage
-                src={product.images[selectedImageIndex]}
+                src={galleryImages[selectedImageIndex] || galleryImages[0]}
                 alt={product.name}
                 productName={product.name}
                 className="w-full h-full object-cover"
@@ -212,9 +208,9 @@ export default function ProductPage() {
             </div>
 
             {/* Image Thumbnails */}
-            {product.images.length > 1 && (
+            {galleryImages.length > 1 && (
               <div className="flex gap-4 overflow-x-auto">
-                {product.images.map((image, index) => (
+                {galleryImages.map((image, index) => (
                   <button
                     key={index}
                     onClick={() => setSelectedImageIndex(index)}
@@ -295,12 +291,7 @@ export default function ProductPage() {
                         onClick={() => {
                           setSelectedVariantId(variant.id)
                           setQuantity(1)
-                          if (variant.image) {
-                            const imageIndex = product.images.indexOf(variant.image)
-                            if (imageIndex !== -1) {
-                              setSelectedImageIndex(imageIndex)
-                            }
-                          }
+                          setSelectedImageIndex(0)
                         }}
                         disabled={variantOutOfStock}
                         className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-colors ${

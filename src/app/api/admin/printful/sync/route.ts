@@ -39,8 +39,12 @@ async function syncVariants(productId: string, productDetails: any) {
   for (const sv of productDetails.sync_variants || []) {
     const price = parseFloat(sv.retail_price)
     const inventoryQty = sv.availability_status === 'active' ? 999 : 0
-    const previewFile = (sv.files || []).find((f: any) => f.type === 'preview')
-    const image = previewFile?.preview_url || null
+    // A variant can have more than one preview image -- e.g. a hoodie has a
+    // separate front and back mockup for the same color. Keep all of them.
+    const previewUrls = (sv.files || [])
+      .filter((f: any) => f.type === 'preview' && f.preview_url)
+      .map((f: any) => f.preview_url)
+    const images = JSON.stringify(previewUrls)
 
     await prisma.variant.upsert({
       where: { printfulExtId: sv.external_id },
@@ -50,7 +54,7 @@ async function syncVariants(productId: string, productDetails: any) {
         color: sv.color || null,
         price: Number.isNaN(price) ? null : price,
         sku: sv.sku || null,
-        image,
+        images,
         inventoryQty,
         updatedAt: new Date()
       },
@@ -61,7 +65,7 @@ async function syncVariants(productId: string, productDetails: any) {
         price: Number.isNaN(price) ? null : price,
         sku: sv.sku || null,
         printfulExtId: sv.external_id,
-        image,
+        images,
         inventoryQty
       }
     })

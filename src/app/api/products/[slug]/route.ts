@@ -29,7 +29,11 @@ export async function GET(
     const formattedProduct = {
       ...product,
       images: JSON.parse(product.images),
-      tags: JSON.parse(product.tags)
+      tags: JSON.parse(product.tags),
+      variants: product.variants.map(variant => ({
+        ...variant,
+        images: JSON.parse(variant.images)
+      }))
     }
 
     return NextResponse.json(formattedProduct)
