@@ -46,6 +46,14 @@ async function syncVariants(productId: string, productDetails: any) {
       .map((f: any) => f.preview_url)
     const images = JSON.stringify(previewUrls)
 
+    const existingVariant = await prisma.variant.findUnique({
+      where: { printfulExtId: sv.external_id },
+      select: { customImages: true }
+    })
+    // Once someone's hand-picked better mockups for a variant (customImages),
+    // stop letting sync overwrite them with Printful's auto-selected preview.
+    const skipImages = existingVariant?.customImages === true
+
     await prisma.variant.upsert({
       where: { printfulExtId: sv.external_id },
       update: {
@@ -54,7 +62,7 @@ async function syncVariants(productId: string, productDetails: any) {
         color: sv.color || null,
         price: Number.isNaN(price) ? null : price,
         sku: sv.sku || null,
-        images,
+        ...(skipImages ? {} : { images }),
         inventoryQty,
         updatedAt: new Date()
       },
@@ -93,13 +101,19 @@ export async function POST(request: NextRequest) {
         const previewImages = getPreviewImages(productDetails, printfulProduct.thumbnail_url)
 
         if (existingProduct) {
+          // Once someone's hand-picked better mockups (customImages), stop
+          // letting sync overwrite them with Printful's auto-selected preview.
+          const skipImages = existingProduct.customImages === true
+
           // Update existing product
           const updatedProduct = await prisma.product.update({
             where: { id: existingProduct.id },
             data: {
               name: printfulProduct.name,
-              images: JSON.stringify(previewImages),
-              mockupImages: JSON.stringify(previewImages),
+              ...(skipImages ? {} : {
+                images: JSON.stringify(previewImages),
+                mockupImages: JSON.stringify(previewImages)
+              }),
               printfulId: printfulProduct.id.toString(),
               fulfillmentType: 'printful',
               status: printfulProduct.is_ignored ? 'archived' : 'active',
