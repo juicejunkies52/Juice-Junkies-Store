@@ -105,8 +105,11 @@ export default function EnhancedButterflies() {
 
   if (!mounted) return null
 
+  // z-[45]: must sit above the page's content sections (z-40) so the
+  // draggable elements are actually clickable wherever they overlap
+  // content, not just in the gaps between sections.
   return (
-    <div className="fixed inset-0 pointer-events-none z-30 overflow-hidden">
+    <div className="fixed inset-0 pointer-events-none z-[45] overflow-hidden">
       {butterflies.map((butterfly) => (
         <Draggable
           key={butterfly.id}
