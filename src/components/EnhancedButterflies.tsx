@@ -56,7 +56,7 @@ function Draggable({
   }, [gravityOn])
 
   const animate = gravityOn ? fallAnimate : grabbed ? undefined : autoAnimate
-  const activeTransition = gravityOn
+  const activeTransition: Transition = gravityOn
     ? fallTransition
     : grabbed
     ? { type: 'spring', stiffness: 300, damping: 20 }
