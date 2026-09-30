@@ -1,8 +1,16 @@
 'use client'
 
-import { motion, TargetAndTransition, Transition } from 'framer-motion'
+import { motion, AnimatePresence, TargetAndTransition, Transition } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import Matter from 'matter-js'
+
+const GRAVITY_FLING_MESSAGES = [
+  "Flings don't count in gravity mode 😤",
+  "Nice try — gravity's not sharing credit",
+  "That toss doesn't count. Rules are rules 🦋",
+  "Gravity mode flings: for fun only, no clout",
+  "Sorry, that one's off the books"
+]
 
 interface Butterfly {
   id: number
@@ -143,9 +151,11 @@ export default function EnhancedButterflies() {
   const [mounted, setMounted] = useState(false)
   const [gravityOn, setGravityOn] = useState(false)
   const [flingCount, setFlingCount] = useState<number | null>(null)
+  const [gravityMessage, setGravityMessage] = useState<string | null>(null)
 
   const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const gravityVectorRef = useRef({ x: 0, y: 1 })
+  const gravityMessageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -198,6 +208,13 @@ export default function EnhancedButterflies() {
       .catch(() => {})
   }
 
+  const showGravityFlingMessage = () => {
+    if (gravityMessageTimeoutRef.current) clearTimeout(gravityMessageTimeoutRef.current)
+    const msg = GRAVITY_FLING_MESSAGES[Math.floor(Math.random() * GRAVITY_FLING_MESSAGES.length)]
+    setGravityMessage(msg)
+    gravityMessageTimeoutRef.current = setTimeout(() => setGravityMessage(null), 2200)
+  }
+
   // Continuously track device tilt while gravity is on, so flipping the
   // phone flips which way things fall in real time (not just a snapshot).
   useEffect(() => {
@@ -216,7 +233,11 @@ export default function EnhancedButterflies() {
   }, [gravityOn])
 
   // Real physics: bodies fall, bounce off the floor/walls/each other, and
-  // can be grabbed and flung around via Matter's own mouse/touch dragging.
+  // can be grabbed and flung. Dragging is handled with our own pointer
+  // listeners scoped to each individual element -- NOT Matter's built-in
+  // Mouse/MouseConstraint bound to the document, which was found to call
+  // preventDefault() on touch events globally and block every tap on the
+  // page (including the gravity toggle button itself) while active.
   useEffect(() => {
     if (!gravityOn) return
 
@@ -237,6 +258,8 @@ export default function EnhancedButterflies() {
     Matter.World.add(engine.world, walls)
 
     const tracked: { id: string; body: Matter.Body; radius: number }[] = []
+    const cleanupFns: (() => void)[] = []
+
     itemRefs.current.forEach((el, id) => {
       const rect = el.getBoundingClientRect()
       const radius = Math.max(rect.width, rect.height) / 2 || 20
@@ -249,19 +272,58 @@ export default function EnhancedButterflies() {
       Matter.Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.15)
       Matter.World.add(engine.world, body)
       tracked.push({ id, body, radius })
-    })
 
-    // Matter's mouse tracking works off raw page coordinates, independent
-    // of CSS pointer-events, so binding it to the whole document lets you
-    // grab any settled butterfly/999 without blocking clicks elsewhere.
-    const mouse = Matter.Mouse.create(document.body)
-    mouse.pixelRatio = window.devicePixelRatio || 1
-    const mouseConstraint = Matter.MouseConstraint.create(engine, {
-      mouse,
-      constraint: { stiffness: 0.15, damping: 0.1, render: { visible: false } }
+      // Manual kinematic drag: while held, the body follows the pointer
+      // directly (frozen as static so gravity doesn't fight it); on
+      // release, it's handed a velocity based on the recent pointer
+      // movement so it actually flies off like a real throw.
+      let dragging = false
+      let lastX = 0, lastY = 0, lastTime = 0, vx = 0, vy = 0
+
+      const onPointerMove = (e: PointerEvent) => {
+        if (!dragging) return
+        e.preventDefault()
+        const now = performance.now()
+        const dt = Math.max(now - lastTime, 1)
+        vx = (e.clientX - lastX) / dt
+        vy = (e.clientY - lastY) / dt
+        Matter.Body.setPosition(body, { x: e.clientX, y: e.clientY })
+        lastX = e.clientX
+        lastY = e.clientY
+        lastTime = now
+      }
+
+      const onPointerUp = () => {
+        if (!dragging) return
+        dragging = false
+        Matter.Body.setStatic(body, false)
+        Matter.Body.setVelocity(body, { x: vx * 16, y: vy * 16 })
+        window.removeEventListener('pointermove', onPointerMove)
+        window.removeEventListener('pointerup', onPointerUp)
+        showGravityFlingMessage()
+      }
+
+      const onPointerDown = (e: PointerEvent) => {
+        e.preventDefault()
+        dragging = true
+        lastX = e.clientX
+        lastY = e.clientY
+        lastTime = performance.now()
+        vx = 0
+        vy = 0
+        Matter.Body.setStatic(body, true)
+        window.addEventListener('pointermove', onPointerMove, { passive: false })
+        window.addEventListener('pointerup', onPointerUp, { passive: false })
+      }
+
+      el.style.touchAction = 'none'
+      el.addEventListener('pointerdown', onPointerDown, { passive: false })
+      cleanupFns.push(() => {
+        el.removeEventListener('pointerdown', onPointerDown)
+        window.removeEventListener('pointermove', onPointerMove)
+        window.removeEventListener('pointerup', onPointerUp)
+      })
     })
-    Matter.World.add(engine.world, mouseConstraint)
-    Matter.Events.on(mouseConstraint, 'enddrag', () => registerFling())
 
     let rafId: number
     let lastTime = performance.now()
@@ -288,6 +350,7 @@ export default function EnhancedButterflies() {
 
     return () => {
       cancelAnimationFrame(rafId)
+      cleanupFns.forEach(fn => fn())
       Matter.World.clear(engine.world, false)
       Matter.Engine.clear(engine)
     }
@@ -333,6 +396,19 @@ export default function EnhancedButterflies() {
         )}
       </div>
 
+      <AnimatePresence>
+        {gravityMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="fixed bottom-24 left-6 z-[46] pointer-events-none max-w-[240px] rounded-lg border border-accent/40 bg-black/90 px-3 py-2 text-xs text-white"
+          >
+            {gravityMessage}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* z-[45]: must sit above the page's content sections (z-40) so the
           floating elements are actually visible/grabbable over content. */}
       <div className="fixed inset-0 pointer-events-none z-[45] overflow-hidden">
@@ -344,7 +420,7 @@ export default function EnhancedButterflies() {
                 if (el) itemRefs.current.set(`b-${butterfly.id}`, el)
                 else itemRefs.current.delete(`b-${butterfly.id}`)
               }}
-              className={`absolute top-0 left-0 ${butterfly.color}`}
+              className={`absolute top-0 left-0 pointer-events-auto cursor-grab active:cursor-grabbing ${butterfly.color}`}
               style={{ transform: `translate(${butterfly.x}vw, ${butterfly.y}vh)` }}
             >
               <Glow color={butterfly.hex} size={40} />
@@ -399,7 +475,7 @@ export default function EnhancedButterflies() {
                 if (el) itemRefs.current.set(`n-${num.id}`, el)
                 else itemRefs.current.delete(`n-${num.id}`)
               }}
-              className="absolute top-0 left-0 font-mono font-bold select-none"
+              className="absolute top-0 left-0 pointer-events-auto cursor-grab active:cursor-grabbing font-mono font-bold select-none"
               style={{ transform: `translate(${num.x}vw, ${num.y}vh)` }}
             >
               <Glow color={num.color} size={num.size} />
