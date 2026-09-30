@@ -273,31 +273,31 @@ export default function EnhancedButterflies() {
       Matter.World.add(engine.world, body)
       tracked.push({ id, body, radius })
 
-      // Manual kinematic drag: while held, the body follows the pointer
-      // directly (frozen as static so gravity doesn't fight it); on
-      // release, it's handed a velocity based on the recent pointer
-      // movement so it actually flies off like a real throw.
+      // A real spring constraint pulling the body toward the pointer, the
+      // same technique Matter's own MouseConstraint uses internally. The
+      // body stays fully dynamic the whole time it's held, so it keeps
+      // colliding normally -- it shoves other bodies out of the way as it's
+      // dragged through them -- and releasing it just removes the
+      // constraint, leaving whatever velocity the drag naturally produced
+      // (a real "fling", not a manually-computed one). The earlier version
+      // froze the body static and teleported it to the cursor each frame,
+      // which skipped collisions entirely and felt jumpy.
       let dragging = false
-      let lastX = 0, lastY = 0, lastTime = 0, vx = 0, vy = 0
+      let constraint: Matter.Constraint | null = null
 
       const onPointerMove = (e: PointerEvent) => {
-        if (!dragging) return
+        if (!dragging || !constraint) return
         e.preventDefault()
-        const now = performance.now()
-        const dt = Math.max(now - lastTime, 1)
-        vx = (e.clientX - lastX) / dt
-        vy = (e.clientY - lastY) / dt
-        Matter.Body.setPosition(body, { x: e.clientX, y: e.clientY })
-        lastX = e.clientX
-        lastY = e.clientY
-        lastTime = now
+        constraint.pointA = { x: e.clientX, y: e.clientY }
       }
 
       const onPointerUp = () => {
         if (!dragging) return
         dragging = false
-        Matter.Body.setStatic(body, false)
-        Matter.Body.setVelocity(body, { x: vx * 16, y: vy * 16 })
+        if (constraint) {
+          Matter.World.remove(engine.world, constraint)
+          constraint = null
+        }
         window.removeEventListener('pointermove', onPointerMove)
         window.removeEventListener('pointerup', onPointerUp)
         showGravityFlingMessage()
@@ -306,12 +306,15 @@ export default function EnhancedButterflies() {
       const onPointerDown = (e: PointerEvent) => {
         e.preventDefault()
         dragging = true
-        lastX = e.clientX
-        lastY = e.clientY
-        lastTime = performance.now()
-        vx = 0
-        vy = 0
-        Matter.Body.setStatic(body, true)
+        constraint = Matter.Constraint.create({
+          bodyB: body,
+          pointA: { x: e.clientX, y: e.clientY },
+          pointB: { x: 0, y: 0 },
+          length: 0,
+          stiffness: 0.4,
+          damping: 0.15
+        })
+        Matter.World.add(engine.world, constraint)
         window.addEventListener('pointermove', onPointerMove, { passive: false })
         window.addEventListener('pointerup', onPointerUp, { passive: false })
       }
@@ -322,6 +325,7 @@ export default function EnhancedButterflies() {
         el.removeEventListener('pointerdown', onPointerDown)
         window.removeEventListener('pointermove', onPointerMove)
         window.removeEventListener('pointerup', onPointerUp)
+        if (constraint) Matter.World.remove(engine.world, constraint)
       })
     })
 
