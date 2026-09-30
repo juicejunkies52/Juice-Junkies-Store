@@ -283,29 +283,54 @@ export default function EnhancedButterflies() {
       // froze the body static and teleported it to the cursor each frame,
       // which skipped collisions entirely and felt jumpy.
       let dragging = false
+      let activePointerId: number | null = null
       let constraint: Matter.Constraint | null = null
 
-      const onPointerMove = (e: PointerEvent) => {
-        if (!dragging || !constraint) return
-        e.preventDefault()
-        constraint.pointA = { x: e.clientX, y: e.clientY }
-      }
-
-      const onPointerUp = () => {
+      const endDrag = () => {
         if (!dragging) return
         dragging = false
+        activePointerId = null
         if (constraint) {
           Matter.World.remove(engine.world, constraint)
           constraint = null
         }
         window.removeEventListener('pointermove', onPointerMove)
         window.removeEventListener('pointerup', onPointerUp)
+        window.removeEventListener('pointercancel', onPointerCancel)
         showGravityFlingMessage()
+      }
+
+      const onPointerMove = (e: PointerEvent) => {
+        if (!dragging || e.pointerId !== activePointerId || !constraint) return
+        e.preventDefault()
+        constraint.pointA = { x: e.clientX, y: e.clientY }
+      }
+
+      const onPointerUp = (e: PointerEvent) => {
+        if (e.pointerId !== activePointerId) return
+        endDrag()
+      }
+
+      // Mobile browsers can cancel an in-progress touch (a system gesture,
+      // a notification, scrolling heuristics kicking in) without ever
+      // firing pointerup -- without this, that left the drag "stuck" with
+      // its constraint and listeners still attached, which is exactly the
+      // kind of works-sometimes flakiness only touch devices would hit.
+      const onPointerCancel = (e: PointerEvent) => {
+        if (e.pointerId !== activePointerId) return
+        endDrag()
       }
 
       const onPointerDown = (e: PointerEvent) => {
         e.preventDefault()
         dragging = true
+        activePointerId = e.pointerId
+        try {
+          el.setPointerCapture(e.pointerId)
+        } catch {
+          // Some browsers refuse capture on elements moved via transform --
+          // harmless, drag still works via the window-level listeners.
+        }
         constraint = Matter.Constraint.create({
           bodyB: body,
           pointA: { x: e.clientX, y: e.clientY },
@@ -317,6 +342,7 @@ export default function EnhancedButterflies() {
         Matter.World.add(engine.world, constraint)
         window.addEventListener('pointermove', onPointerMove, { passive: false })
         window.addEventListener('pointerup', onPointerUp, { passive: false })
+        window.addEventListener('pointercancel', onPointerCancel, { passive: false })
       }
 
       el.style.touchAction = 'none'
@@ -325,6 +351,7 @@ export default function EnhancedButterflies() {
         el.removeEventListener('pointerdown', onPointerDown)
         window.removeEventListener('pointermove', onPointerMove)
         window.removeEventListener('pointerup', onPointerUp)
+        window.removeEventListener('pointercancel', onPointerCancel)
         if (constraint) Matter.World.remove(engine.world, constraint)
       })
     })
