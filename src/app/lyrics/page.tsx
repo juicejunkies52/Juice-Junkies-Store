@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Search, ArrowLeft, Music, Disc3 } from 'lucide-react'
 import Link from 'next/link'
+import EnhancedButterflies from '@/components/EnhancedButterflies'
 
 interface LyricResult {
   id: number
@@ -75,6 +76,7 @@ export default function LyricsPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <EnhancedButterflies />
       <div className="max-w-3xl mx-auto px-6 py-12">
         <Link href="/" className="inline-flex items-center gap-2 text-accent hover:underline mb-8 text-sm">
           <ArrowLeft size={16} />

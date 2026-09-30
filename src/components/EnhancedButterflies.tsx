@@ -1,7 +1,8 @@
 'use client'
 
 import { motion, TargetAndTransition, Transition } from 'framer-motion'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import Matter from 'matter-js'
 
 interface Butterfly {
   id: number
@@ -10,6 +11,7 @@ interface Butterfly {
   rotation: number
   scale: number
   color: string
+  hex: string
   delay: number
   duration: number
 }
@@ -24,55 +26,111 @@ interface FloatingNumber {
   duration: number
 }
 
-// Wraps a floating element with three modes:
-// - normal: flies its scripted auto-animated path
-// - grabbed: dragged by the user; framer-motion's drag momentum takes over
-//   and the scripted path stops for good (no snap-back), same as a fling
-// - gravity: falls toward whichever edge is "down" (see the toggle button)
-function Draggable({
+const BUTTERFLY_HEX: Record<string, string> = {
+  'text-purple-400/60': '#c084fc',
+  'text-blue-400/60': '#60a5fa',
+  'text-green-400/60': '#4ade80',
+  'text-pink-400/60': '#f472b6',
+  'text-yellow-400/60': '#facc15',
+  'text-accent/60': '#39ff14'
+}
+
+// Soft blurred glow sitting behind a butterfly/number -- the neon "pop"
+// without changing the shape itself.
+function Glow({ color, size }: { color: string; size: number }) {
+  return (
+    <div
+      className="absolute inset-0 -z-10 rounded-full"
+      style={{
+        background: color,
+        filter: `blur(${size * 0.4}px)`,
+        opacity: 0.55
+      }}
+    />
+  )
+}
+
+function ButterflySvg() {
+  return (
+    <motion.svg
+      width="40"
+      height="40"
+      viewBox="0 0 40 40"
+      className="drop-shadow-[0_0_6px_currentColor]"
+      animate={{ rotateY: [0, 20, -20, 0] }}
+      transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+    >
+      <motion.line
+        x1="20" y1="5" x2="20" y2="35"
+        stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+        animate={{ opacity: [0.6, 1, 0.6] }}
+        transition={{ duration: 1, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <motion.path
+        d="M20,15 Q8,8 5,15 Q8,22 20,20"
+        fill="currentColor" fillOpacity="0.75" stroke="currentColor" strokeWidth="1.2"
+        animate={{ d: ["M20,15 Q8,8 5,15 Q8,22 20,20", "M20,15 Q6,6 3,15 Q6,24 20,20", "M20,15 Q8,8 5,15 Q8,22 20,20"] }}
+        transition={{ duration: 0.8, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <motion.path
+        d="M20,15 Q32,8 35,15 Q32,22 20,20"
+        fill="currentColor" fillOpacity="0.75" stroke="currentColor" strokeWidth="1.2"
+        animate={{ d: ["M20,15 Q32,8 35,15 Q32,22 20,20", "M20,15 Q34,6 37,15 Q34,24 20,20", "M20,15 Q32,8 35,15 Q32,22 20,20"] }}
+        transition={{ duration: 0.8, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <motion.path
+        d="M20,20 Q12,25 8,30 Q12,35 20,30"
+        fill="currentColor" fillOpacity="0.55" stroke="currentColor" strokeWidth="1.2"
+        animate={{ d: ["M20,20 Q12,25 8,30 Q12,35 20,30", "M20,20 Q10,27 6,32 Q10,37 20,30", "M20,20 Q12,25 8,30 Q12,35 20,30"] }}
+        transition={{ duration: 0.8, repeat: Infinity, ease: 'easeInOut', delay: 0.1 }}
+      />
+      <motion.path
+        d="M20,20 Q28,25 32,30 Q28,35 20,30"
+        fill="currentColor" fillOpacity="0.55" stroke="currentColor" strokeWidth="1.2"
+        animate={{ d: ["M20,20 Q28,25 32,30 Q28,35 20,30", "M20,20 Q30,27 34,32 Q30,37 20,30", "M20,20 Q28,25 32,30 Q28,35 20,30"] }}
+        transition={{ duration: 0.8, repeat: Infinity, ease: 'easeInOut', delay: 0.1 }}
+      />
+      <motion.g animate={{ rotate: [0, 5, -5, 0] }} transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}>
+        <line x1="18" y1="8" x2="16" y2="4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+        <line x1="22" y1="8" x2="24" y2="4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+        <circle cx="16" cy="4" r="1" fill="currentColor" />
+        <circle cx="24" cy="4" r="1" fill="currentColor" />
+      </motion.g>
+    </motion.svg>
+  )
+}
+
+// Normal (non-gravity) mode: scripted flight path, grab-and-fling via
+// framer-motion's own drag + momentum.
+function FloatingItem({
   autoAnimate,
   transition,
-  fallAnimate,
-  fallTransition,
-  gravityOn,
   initial,
   className,
-  children
+  children,
+  onFling
 }: {
   autoAnimate: TargetAndTransition
   transition: Transition
-  fallAnimate: TargetAndTransition
-  fallTransition: Transition
-  gravityOn: boolean
   initial: TargetAndTransition
   className?: string
   children: React.ReactNode
+  onFling: () => void
 }) {
   const [grabbed, setGrabbed] = useState(false)
-
-  // Re-arm normal floating+drag behavior each time gravity is switched off.
-  useEffect(() => {
-    if (gravityOn) setGrabbed(false)
-  }, [gravityOn])
-
-  const animate = gravityOn ? fallAnimate : grabbed ? undefined : autoAnimate
-  const activeTransition: Transition = gravityOn
-    ? fallTransition
-    : grabbed
-    ? { type: 'spring', stiffness: 300, damping: 20 }
-    : transition
 
   return (
     <motion.div
       className={`pointer-events-auto cursor-grab active:cursor-grabbing ${className || ''}`}
       initial={initial}
-      animate={animate}
-      transition={activeTransition}
-      drag={!gravityOn}
+      animate={grabbed ? undefined : autoAnimate}
+      transition={grabbed ? { type: 'spring', stiffness: 300, damping: 20 } : transition}
+      drag
       dragMomentum
       dragElastic={0.2}
       whileDrag={{ scale: 1.3 }}
       onDragStart={() => setGrabbed(true)}
+      onDragEnd={onFling}
     >
       {children}
     </motion.div>
@@ -84,28 +142,35 @@ export default function EnhancedButterflies() {
   const [numbers, setNumbers] = useState<FloatingNumber[]>([])
   const [mounted, setMounted] = useState(false)
   const [gravityOn, setGravityOn] = useState(false)
-  const [fallDirection, setFallDirection] = useState<'down' | 'up'>('down')
+  const [flingCount, setFlingCount] = useState<number | null>(null)
+
+  const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const gravityVectorRef = useRef({ x: 0, y: 1 })
 
   useEffect(() => {
     setMounted(true)
 
-    const newButterflies: Butterfly[] = Array.from({ length: 12 }, (_, i) => ({
-      id: i,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      rotation: Math.random() * 360,
-      scale: 0.8 + Math.random() * 0.7,
-      color: [
+    const newButterflies: Butterfly[] = Array.from({ length: 12 }, (_, i) => {
+      const color = [
         'text-purple-400/60',
         'text-blue-400/60',
         'text-green-400/60',
         'text-pink-400/60',
         'text-yellow-400/60',
         'text-accent/60'
-      ][Math.floor(Math.random() * 6)],
-      delay: Math.random() * 10,
-      duration: 15 + Math.random() * 10
-    }))
+      ][Math.floor(Math.random() * 6)]
+      return {
+        id: i,
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        rotation: Math.random() * 360,
+        scale: 0.8 + Math.random() * 0.7,
+        color,
+        hex: BUTTERFLY_HEX[color],
+        delay: Math.random() * 10,
+        duration: 15 + Math.random() * 10
+      }
+    })
     setButterflies(newButterflies)
 
     const newNumbers: FloatingNumber[] = Array.from({ length: 7 }, (_, i) => ({
@@ -118,34 +183,123 @@ export default function EnhancedButterflies() {
       duration: 18 + Math.random() * 12
     }))
     setNumbers(newNumbers)
+
+    fetch('/api/flings')
+      .then(r => r.json())
+      .then(d => setFlingCount(typeof d.count === 'number' ? d.count : 0))
+      .catch(() => setFlingCount(0))
   }, [])
 
-  // While gravity is on, listen for device tilt so flipping the phone flips
-  // which way things fall. Best-effort: not all browsers/devices expose
-  // this, and iOS requires the permission prompt below.
+  const registerFling = () => {
+    setFlingCount(c => (c ?? 0) + 1)
+    fetch('/api/flings', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => { if (typeof d.count === 'number') setFlingCount(d.count) })
+      .catch(() => {})
+  }
+
+  // Continuously track device tilt while gravity is on, so flipping the
+  // phone flips which way things fall in real time (not just a snapshot).
   useEffect(() => {
     if (!gravityOn || typeof window === 'undefined' || !('DeviceOrientationEvent' in window)) {
       return
     }
-
     const handleOrientation = (e: DeviceOrientationEvent) => {
-      if (e.beta === null) return
-      setFallDirection(e.beta < 0 ? 'up' : 'down')
+      if (e.beta === null || e.gamma === null) return
+      gravityVectorRef.current = {
+        x: Math.max(-1, Math.min(1, e.gamma / 45)),
+        y: Math.max(-1, Math.min(1, e.beta / 45)) || 1
+      }
     }
-
     window.addEventListener('deviceorientation', handleOrientation)
     return () => window.removeEventListener('deviceorientation', handleOrientation)
   }, [gravityOn])
 
+  // Real physics: bodies fall, bounce off the floor/walls/each other, and
+  // can be grabbed and flung around via Matter's own mouse/touch dragging.
+  useEffect(() => {
+    if (!gravityOn) return
+
+    const width = window.innerWidth
+    const height = window.innerHeight
+    const wallThickness = 80
+
+    const engine = Matter.Engine.create()
+    engine.gravity.x = 0
+    engine.gravity.y = 1
+
+    const walls = [
+      Matter.Bodies.rectangle(width / 2, height + wallThickness / 2, width * 2, wallThickness, { isStatic: true }),
+      Matter.Bodies.rectangle(width / 2, -wallThickness / 2, width * 2, wallThickness, { isStatic: true }),
+      Matter.Bodies.rectangle(-wallThickness / 2, height / 2, wallThickness, height * 2, { isStatic: true }),
+      Matter.Bodies.rectangle(width + wallThickness / 2, height / 2, wallThickness, height * 2, { isStatic: true })
+    ]
+    Matter.World.add(engine.world, walls)
+
+    const tracked: { id: string; body: Matter.Body; radius: number }[] = []
+    itemRefs.current.forEach((el, id) => {
+      const rect = el.getBoundingClientRect()
+      const radius = Math.max(rect.width, rect.height) / 2 || 20
+      const body = Matter.Bodies.circle(rect.left + radius, rect.top + radius, radius, {
+        restitution: 0.65,
+        friction: 0.15,
+        frictionAir: 0.008,
+        density: 0.0012
+      })
+      Matter.Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.15)
+      Matter.World.add(engine.world, body)
+      tracked.push({ id, body, radius })
+    })
+
+    // Matter's mouse tracking works off raw page coordinates, independent
+    // of CSS pointer-events, so binding it to the whole document lets you
+    // grab any settled butterfly/999 without blocking clicks elsewhere.
+    const mouse = Matter.Mouse.create(document.body)
+    mouse.pixelRatio = window.devicePixelRatio || 1
+    const mouseConstraint = Matter.MouseConstraint.create(engine, {
+      mouse,
+      constraint: { stiffness: 0.15, damping: 0.1, render: { visible: false } }
+    })
+    Matter.World.add(engine.world, mouseConstraint)
+    Matter.Events.on(mouseConstraint, 'enddrag', () => registerFling())
+
+    let rafId: number
+    let lastTime = performance.now()
+
+    const loop = (time: number) => {
+      const delta = Math.min(time - lastTime, 33)
+      lastTime = time
+
+      engine.gravity.x = gravityVectorRef.current.x
+      engine.gravity.y = gravityVectorRef.current.y
+
+      Matter.Engine.update(engine, delta)
+
+      tracked.forEach(({ id, body, radius }) => {
+        const el = itemRefs.current.get(id)
+        if (el) {
+          el.style.transform = `translate(${body.position.x - radius}px, ${body.position.y - radius}px) rotate(${body.angle}rad)`
+        }
+      })
+
+      rafId = requestAnimationFrame(loop)
+    }
+    rafId = requestAnimationFrame(loop)
+
+    return () => {
+      cancelAnimationFrame(rafId)
+      Matter.World.clear(engine.world, false)
+      Matter.Engine.clear(engine)
+    }
+  }, [gravityOn])
+
   const handleToggleGravity = async () => {
-    // iOS 13+ requires this permission to be requested from a direct user
-    // gesture -- this click is that gesture.
     const DeviceOrientationEventAny = (window as any).DeviceOrientationEvent
     if (!gravityOn && DeviceOrientationEventAny && typeof DeviceOrientationEventAny.requestPermission === 'function') {
       try {
         await DeviceOrientationEventAny.requestPermission()
       } catch {
-        // Denied or unsupported -- gravity still works, it'll just always fall down.
+        // Denied or unsupported -- gravity still works, just always falls down.
       }
     }
     setGravityOn(prev => !prev)
@@ -153,372 +307,129 @@ export default function EnhancedButterflies() {
 
   if (!mounted) return null
 
-  const fallTarget = fallDirection === 'down' ? '92vh' : '4vh'
-  const spinDirection = fallDirection === 'down' ? 1 : -1
-  const fallTransition: Transition = { duration: 1.5, ease: 'easeIn' }
-
   return (
     <>
-      {/* Gravity toggle */}
-      <button
-        onClick={handleToggleGravity}
-        className="fixed bottom-6 left-6 z-[46] pointer-events-auto flex items-center gap-2 rounded-full border border-accent/50 bg-black/80 px-4 py-3 text-sm font-medium text-white backdrop-blur-md transition-colors hover:border-accent"
-        title="Toggle gravity for the floating butterflies and 999s"
-      >
-        <motion.span
-          animate={{ rotate: gravityOn ? 180 : 0 }}
-          transition={{ duration: 0.3 }}
+      {/* Gravity toggle + fling counter */}
+      <div className="fixed bottom-6 left-6 z-[46] pointer-events-auto flex items-center gap-2">
+        <button
+          onClick={handleToggleGravity}
+          className="flex items-center gap-2 rounded-full border border-accent/50 bg-black/80 px-4 py-3 text-sm font-medium text-white backdrop-blur-md transition-colors hover:border-accent"
+          title="Toggle real gravity physics for the floating butterflies and 999s"
         >
-          🦋
-        </motion.span>
-        Gravity {gravityOn ? 'On' : 'Off'}
-      </button>
+          <motion.span animate={{ rotate: gravityOn ? 180 : 0 }} transition={{ duration: 0.3 }}>
+            🦋
+          </motion.span>
+          Gravity {gravityOn ? 'On' : 'Off'}
+        </button>
+        {flingCount !== null && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="rounded-full border border-accent/30 bg-black/80 px-3 py-3 text-xs font-mono text-accent backdrop-blur-md"
+            title="Total butterflies/999s flung by everyone"
+          >
+            {flingCount.toLocaleString()} flung
+          </motion.div>
+        )}
+      </div>
 
       {/* z-[45]: must sit above the page's content sections (z-40) so the
-          draggable elements are actually clickable wherever they overlap
-          content, not just in the gaps between sections. */}
+          floating elements are actually visible/grabbable over content. */}
       <div className="fixed inset-0 pointer-events-none z-[45] overflow-hidden">
-        {butterflies.map((butterfly) => (
-          <Draggable
-            key={butterfly.id}
-            className={`absolute ${butterfly.color}`}
-            gravityOn={gravityOn}
-            initial={{
-              x: `${butterfly.x}vw`,
-              y: `${butterfly.y}vh`,
-              rotate: butterfly.rotation,
-              scale: 0,
-              opacity: 0
-            }}
-            autoAnimate={{
-              x: [
-                `${butterfly.x}vw`,
-                `${(butterfly.x + 30) % 100}vw`,
-                `${(butterfly.x - 20) % 100}vw`,
-                `${butterfly.x}vw`
-              ],
-              y: [
-                `${butterfly.y}vh`,
-                `${(butterfly.y - 20) % 100}vh`,
-                `${(butterfly.y + 15) % 100}vh`,
-                `${butterfly.y}vh`
-              ],
-              rotate: [
-                butterfly.rotation,
-                butterfly.rotation + 180,
-                butterfly.rotation + 360
-              ],
-              scale: [0, butterfly.scale, butterfly.scale, 0],
-              opacity: [0, 0.8, 0.8, 0]
-            }}
-            transition={{
-              duration: butterfly.duration,
-              delay: butterfly.delay,
-              repeat: Infinity,
-              ease: 'easeInOut'
-            }}
-            fallAnimate={{
-              y: fallTarget,
-              rotate: butterfly.rotation + spinDirection * 720,
-              scale: butterfly.scale,
-              opacity: 0.8
-            }}
-            fallTransition={fallTransition}
-          >
-            {/* Butterfly SVG */}
-            <motion.svg
-              width="40"
-              height="40"
-              viewBox="0 0 40 40"
-              className="drop-shadow-lg"
-              animate={{
-                rotateY: [0, 20, -20, 0],
+        {butterflies.map((butterfly) =>
+          gravityOn ? (
+            <div
+              key={`grav-b-${butterfly.id}`}
+              ref={(el) => {
+                if (el) itemRefs.current.set(`b-${butterfly.id}`, el)
+                else itemRefs.current.delete(`b-${butterfly.id}`)
               }}
-              transition={{
-                duration: 2,
-                repeat: Infinity,
-                ease: "easeInOut"
-              }}
+              className={`absolute top-0 left-0 ${butterfly.color}`}
+              style={{ transform: `translate(${butterfly.x}vw, ${butterfly.y}vh)` }}
             >
-              {/* Body */}
-              <motion.line
-                x1="20"
-                y1="5"
-                x2="20"
-                y2="35"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                animate={{
-                  opacity: [0.6, 1, 0.6]
-                }}
-                transition={{
-                  duration: 1,
-                  repeat: Infinity,
-                  ease: "easeInOut"
-                }}
-              />
-
-              {/* Left Wing Top */}
-              <motion.path
-                d="M20,15 Q8,8 5,15 Q8,22 20,20"
-                fill="currentColor"
-                fillOpacity="0.7"
-                stroke="currentColor"
-                strokeWidth="1"
-                animate={{
-                  d: [
-                    "M20,15 Q8,8 5,15 Q8,22 20,20",
-                    "M20,15 Q6,6 3,15 Q6,24 20,20",
-                    "M20,15 Q8,8 5,15 Q8,22 20,20"
-                  ]
-                }}
-                transition={{
-                  duration: 0.8,
-                  repeat: Infinity,
-                  ease: "easeInOut"
-                }}
-              />
-
-              {/* Right Wing Top */}
-              <motion.path
-                d="M20,15 Q32,8 35,15 Q32,22 20,20"
-                fill="currentColor"
-                fillOpacity="0.7"
-                stroke="currentColor"
-                strokeWidth="1"
-                animate={{
-                  d: [
-                    "M20,15 Q32,8 35,15 Q32,22 20,20",
-                    "M20,15 Q34,6 37,15 Q34,24 20,20",
-                    "M20,15 Q32,8 35,15 Q32,22 20,20"
-                  ]
-                }}
-                transition={{
-                  duration: 0.8,
-                  repeat: Infinity,
-                  ease: "easeInOut"
-                }}
-              />
-
-              {/* Left Wing Bottom */}
-              <motion.path
-                d="M20,20 Q12,25 8,30 Q12,35 20,30"
-                fill="currentColor"
-                fillOpacity="0.5"
-                stroke="currentColor"
-                strokeWidth="1"
-                animate={{
-                  d: [
-                    "M20,20 Q12,25 8,30 Q12,35 20,30",
-                    "M20,20 Q10,27 6,32 Q10,37 20,30",
-                    "M20,20 Q12,25 8,30 Q12,35 20,30"
-                  ]
-                }}
-                transition={{
-                  duration: 0.8,
-                  repeat: Infinity,
-                  ease: "easeInOut",
-                  delay: 0.1
-                }}
-              />
-
-              {/* Right Wing Bottom */}
-              <motion.path
-                d="M20,20 Q28,25 32,30 Q28,35 20,30"
-                fill="currentColor"
-                fillOpacity="0.5"
-                stroke="currentColor"
-                strokeWidth="1"
-                animate={{
-                  d: [
-                    "M20,20 Q28,25 32,30 Q28,35 20,30",
-                    "M20,20 Q30,27 34,32 Q30,37 20,30",
-                    "M20,20 Q28,25 32,30 Q28,35 20,30"
-                  ]
-                }}
-                transition={{
-                  duration: 0.8,
-                  repeat: Infinity,
-                  ease: "easeInOut",
-                  delay: 0.1
-                }}
-              />
-
-              {/* Antennae */}
-              <motion.g
-                animate={{
-                  rotate: [0, 5, -5, 0]
-                }}
-                transition={{
-                  duration: 2,
-                  repeat: Infinity,
-                  ease: "easeInOut"
-                }}
-              >
-                <line x1="18" y1="8" x2="16" y2="4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-                <line x1="22" y1="8" x2="24" y2="4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-                <circle cx="16" cy="4" r="1" fill="currentColor" />
-                <circle cx="24" cy="4" r="1" fill="currentColor" />
-              </motion.g>
-            </motion.svg>
-
-            {/* Sparkle trail */}
-            <motion.div
-              className="absolute inset-0 pointer-events-none"
-              animate={{
-                opacity: [0, 1, 0]
+              <Glow color={butterfly.hex} size={40} />
+              <ButterflySvg />
+            </div>
+          ) : (
+            <FloatingItem
+              key={butterfly.id}
+              className={butterfly.color}
+              onFling={registerFling}
+              initial={{
+                x: `${butterfly.x}vw`, y: `${butterfly.y}vh`,
+                rotate: butterfly.rotation, scale: 0, opacity: 0
               }}
-              transition={{
-                duration: 1.5,
-                repeat: Infinity,
-                ease: "easeInOut",
-                delay: 0.5
+              autoAnimate={{
+                x: [`${butterfly.x}vw`, `${(butterfly.x + 30) % 100}vw`, `${(butterfly.x - 20) % 100}vw`, `${butterfly.x}vw`],
+                y: [`${butterfly.y}vh`, `${(butterfly.y - 20) % 100}vh`, `${(butterfly.y + 15) % 100}vh`, `${butterfly.y}vh`],
+                rotate: [butterfly.rotation, butterfly.rotation + 180, butterfly.rotation + 360],
+                scale: [0, butterfly.scale, butterfly.scale, 0],
+                opacity: [0, 0.85, 0.85, 0]
               }}
+              transition={{ duration: butterfly.duration, delay: butterfly.delay, repeat: Infinity, ease: 'easeInOut' }}
             >
-              {[...Array(3)].map((_, i) => (
+              <div className="relative">
+                <Glow color={butterfly.hex} size={40} />
+                <ButterflySvg />
                 <motion.div
-                  key={i}
-                  className="absolute w-1 h-1 bg-current rounded-full"
-                  style={{
-                    left: `${15 + i * 8}px`,
-                    top: `${20 + i * 4}px`
-                  }}
-                  animate={{
-                    scale: [0, 1, 0],
-                    opacity: [0, 0.8, 0]
-                  }}
-                  transition={{
-                    duration: 1,
-                    repeat: Infinity,
-                    delay: i * 0.2
-                  }}
-                />
-              ))}
-            </motion.div>
-          </Draggable>
-        ))}
+                  className="absolute inset-0 pointer-events-none"
+                  animate={{ opacity: [0, 1, 0] }}
+                  transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut', delay: 0.5 }}
+                >
+                  {[...Array(3)].map((_, i) => (
+                    <motion.div
+                      key={i}
+                      className="absolute w-1 h-1 bg-current rounded-full"
+                      style={{ left: `${15 + i * 8}px`, top: `${20 + i * 4}px` }}
+                      animate={{ scale: [0, 1, 0], opacity: [0, 0.8, 0] }}
+                      transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+                    />
+                  ))}
+                </motion.div>
+              </div>
+            </FloatingItem>
+          )
+        )}
 
-        {/* Floating grabbable 999s */}
-        {numbers.map((num) => (
-          <Draggable
-            key={`num-${num.id}`}
-            className="absolute font-bold select-none"
-            gravityOn={gravityOn}
-            initial={{
-              x: `${num.x}vw`,
-              y: `${num.y}vh`,
-              opacity: 0,
-              scale: 0
-            }}
-            autoAnimate={{
-              x: [
-                `${num.x}vw`,
-                `${(num.x + 25) % 100}vw`,
-                `${(num.x - 15) % 100}vw`,
-                `${num.x}vw`
-              ],
-              y: [
-                `${num.y}vh`,
-                `${(num.y - 15) % 100}vh`,
-                `${(num.y + 20) % 100}vh`,
-                `${num.y}vh`
-              ],
-              opacity: [0, 0.5, 0.5, 0],
-              scale: [0, 1, 1, 0]
-            }}
-            transition={{
-              duration: num.duration,
-              delay: num.delay,
-              repeat: Infinity,
-              ease: 'easeInOut'
-            }}
-            fallAnimate={{
-              y: fallTarget,
-              opacity: 0.5,
-              scale: 1
-            }}
-            fallTransition={fallTransition}
-          >
-            <span
-              style={{
-                fontSize: num.size,
-                color: num.color,
-                textShadow: `0 0 15px ${num.color}, 0 0 5px ${num.color}`
+        {numbers.map((num) =>
+          gravityOn ? (
+            <div
+              key={`grav-n-${num.id}`}
+              ref={(el) => {
+                if (el) itemRefs.current.set(`n-${num.id}`, el)
+                else itemRefs.current.delete(`n-${num.id}`)
               }}
+              className="absolute top-0 left-0 font-mono font-bold select-none"
+              style={{ transform: `translate(${num.x}vw, ${num.y}vh)` }}
             >
-              999
-            </span>
-          </Draggable>
-        ))}
-
-        {/* Special 999 Butterfly */}
-        <Draggable
-          className="text-accent/80"
-          gravityOn={gravityOn}
-          initial={{ x: '-10%', y: '50%', scale: 0, opacity: 0 }}
-          autoAnimate={{
-            x: ['110%', '50%', '110%'],
-            y: ['50%', '30%', '70%', '50%'],
-            scale: [0, 1.5, 1.5, 0],
-            opacity: [0, 1, 1, 0],
-            rotate: [0, 360]
-          }}
-          transition={{
-            duration: 20,
-            delay: 5,
-            repeat: Infinity,
-            ease: "easeInOut"
-          }}
-          fallAnimate={{
-            y: fallTarget,
-            x: '50%',
-            rotate: spinDirection * 720,
-            scale: 1.5,
-            opacity: 1
-          }}
-          fallTransition={fallTransition}
-        >
-          <div className="relative">
-            <motion.svg
-              width="60"
-              height="60"
-              viewBox="0 0 60 60"
-              className="drop-shadow-2xl"
-            >
-              {/* Enhanced butterfly for special 999 appearance */}
-              <motion.path
-                d="M30,25 Q15,10 8,20 Q15,35 30,30 Q45,10 52,20 Q45,35 30,30"
-                fill="currentColor"
-                fillOpacity="0.8"
-                stroke="currentColor"
-                strokeWidth="2"
-                animate={{
-                  fillOpacity: [0.8, 1, 0.8]
-                }}
-                transition={{
-                  duration: 2,
-                  repeat: Infinity
-                }}
-              />
-              <line x1="30" y1="10" x2="30" y2="50" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-            </motion.svg>
-
-            {/* 999 text overlay */}
-            <motion.div
-              className="absolute inset-0 flex items-center justify-center text-black font-bold text-xs"
-              animate={{
-                opacity: [0.7, 1, 0.7]
+              <Glow color={num.color} size={num.size} />
+              <span style={{ fontSize: num.size, color: num.color, textShadow: `0 0 18px ${num.color}, 0 0 6px ${num.color}` }}>
+                999
+              </span>
+            </div>
+          ) : (
+            <FloatingItem
+              key={`num-${num.id}`}
+              className="font-mono font-bold select-none"
+              onFling={registerFling}
+              initial={{ x: `${num.x}vw`, y: `${num.y}vh`, opacity: 0, scale: 0 }}
+              autoAnimate={{
+                x: [`${num.x}vw`, `${(num.x + 25) % 100}vw`, `${(num.x - 15) % 100}vw`, `${num.x}vw`],
+                y: [`${num.y}vh`, `${(num.y - 15) % 100}vh`, `${(num.y + 20) % 100}vh`, `${num.y}vh`],
+                opacity: [0, 0.55, 0.55, 0],
+                scale: [0, 1, 1, 0]
               }}
-              transition={{
-                duration: 1.5,
-                repeat: Infinity
-              }}
+              transition={{ duration: num.duration, delay: num.delay, repeat: Infinity, ease: 'easeInOut' }}
             >
-              999
-            </motion.div>
-          </div>
-        </Draggable>
+              <div className="relative">
+                <Glow color={num.color} size={num.size} />
+                <span style={{ fontSize: num.size, color: num.color, textShadow: `0 0 18px ${num.color}, 0 0 6px ${num.color}` }}>
+                  999
+                </span>
+              </div>
+            </FloatingItem>
+          )
+        )}
       </div>
     </>
   )

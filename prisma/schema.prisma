@@ -196,3 +196,11 @@ model AdminSession {
   createdAt DateTime @default(now())
   admin     Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
 }
+
+// Site-wide running total of how many butterflies/999s visitors have flung
+// in gravity mode. Single row, always keyed "global".
+model FlingCounter {
+  id        String   @id @default("global")
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
