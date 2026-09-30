@@ -336,8 +336,12 @@ export default function EnhancedButterflies() {
           pointA: { x: e.clientX, y: e.clientY },
           pointB: { x: 0, y: 0 },
           length: 0,
-          stiffness: 0.4,
-          damping: 0.15
+          // Strong enough to shove through a pile of other bodies rather
+          // than getting overpowered by their collision resistance and
+          // feeling like the grip broke -- 0.4 held fine in open space but
+          // lost the fight against a cluster.
+          stiffness: 0.85,
+          damping: 0.25
         })
         Matter.World.add(engine.world, constraint)
         window.addEventListener('pointermove', onPointerMove, { passive: false })
