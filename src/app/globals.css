@@ -119,6 +119,31 @@ body::before {
   animation: borderGlow 3s ease-in-out infinite;
 }
 
+/* Burn-through hole effect: a short flickering fire ramp (white-hot ->
+   yellow -> orange -> red) that plays right as a hole appears, imitating
+   something actually burning through rather than just popping out of
+   existence. Flicker is two interleaved frequencies on opacity/scale so
+   it doesn't read as a smooth, mechanical fade. */
+@keyframes burnThrough {
+  0% {
+    opacity: 0.98;
+    transform: scale(0.35);
+    filter: brightness(2.4) saturate(1.4);
+  }
+  8% { opacity: 0.8; transform: scale(0.55); }
+  16% { opacity: 1; transform: scale(0.7); }
+  24% { opacity: 0.75; transform: scale(0.82); }
+  34% { opacity: 0.95; transform: scale(0.92); filter: brightness(1.7) saturate(1.3); }
+  46% { opacity: 0.65; transform: scale(1); }
+  60% { opacity: 0.85; transform: scale(1.04); filter: brightness(1.2) saturate(1.1); }
+  75% { opacity: 0.45; transform: scale(1.08); }
+  100% {
+    opacity: 0;
+    transform: scale(1.15);
+    filter: brightness(0.9) saturate(1);
+  }
+}
+
 @keyframes borderGlow {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
@@ -176,6 +201,23 @@ body::before {
 
 .animate-pulse-neon {
   animation: pulse-neon 2s ease-in-out infinite;
+}
+
+/* Purchase-exclusive creature -- cycles through distinct colors every 1.5s.
+   steps(1) on each stop holds the color flat for its whole segment instead
+   of fading, so it snaps rather than gradients. */
+@keyframes colorCycle999 {
+  0% { color: #ff3b3b; animation-timing-function: steps(1); }
+  16.66% { color: #ff9f1c; animation-timing-function: steps(1); }
+  33.33% { color: #ffe135; animation-timing-function: steps(1); }
+  50% { color: #39ff14; animation-timing-function: steps(1); }
+  66.66% { color: #60a5fa; animation-timing-function: steps(1); }
+  83.33% { color: #c084fc; animation-timing-function: steps(1); }
+  100% { color: #ff3b3b; }
+}
+
+.creature-999-cycle {
+  animation: colorCycle999 9s linear infinite;
 }
 
 /* Logo Blending Styles */

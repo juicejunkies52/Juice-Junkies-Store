@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1200" width="800" height="1200">
+  <defs>
+    <radialGradient id="vortexBg" cx="50%" cy="38%" r="75%">
+      <stop offset="0%" stop-color="#1a0b2e" />
+      <stop offset="55%" stop-color="#0d0618" />
+      <stop offset="100%" stop-color="#040208" />
+    </radialGradient>
+    <radialGradient id="vortexGlow" cx="50%" cy="38%" r="40%">
+      <stop offset="0%" stop-color="#39ff14" stop-opacity="0.55" />
+      <stop offset="40%" stop-color="#6a0dad" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#6a0dad" stop-opacity="0" />
+    </radialGradient>
+    <filter id="vortexBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" />
+    </filter>
+  </defs>
+  <rect width="800" height="1200" fill="url(#vortexBg)" />
+  <g filter="url(#vortexBlur)" opacity="0.85">
+    <g stroke-linecap="round" fill="none">
+      <path d="M 400 456 Q 700 420 760 700 Q 800 980 500 1080 Q 160 1180 40 880 Q -60 600 260 420 Q 520 270 700 500"
+            stroke="#39ff14" stroke-width="10" opacity="0.5" />
+      <path d="M 400 456 Q 640 440 690 660 Q 730 900 480 980 Q 220 1060 120 820 Q 30 600 260 460 Q 470 340 620 520"
+            stroke="#ff1493" stroke-width="8" opacity="0.45" />
+      <path d="M 400 456 Q 580 450 610 620 Q 640 820 450 880 Q 270 940 200 760 Q 140 600 300 490 Q 440 400 540 540"
+            stroke="#ffff00" stroke-width="6" opacity="0.4" />
+      <path d="M 400 456 Q 520 456 530 580 Q 540 720 420 760 Q 310 800 270 680 Q 235 580 330 520 Q 400 475 460 560"
+            stroke="#6a0dad" stroke-width="5" opacity="0.5" />
+    </g>
+  </g>
+  <circle cx="400" cy="456" r="230" fill="url(#vortexGlow)" />
+  <circle cx="400" cy="456" r="26" fill="#f8fff0" opacity="0.9" filter="url(#vortexBlur)" />
+  <g fill="#ffffff">
+    <circle cx="120" cy="150" r="2" opacity="0.8" />
+    <circle cx="680" cy="90" r="1.6" opacity="0.6" />
+    <circle cx="60" cy="520" r="1.8" opacity="0.7" />
+    <circle cx="740" cy="300" r="2.2" opacity="0.8" />
+    <circle cx="200" cy="1050" r="1.6" opacity="0.5" />
+    <circle cx="610" cy="1120" r="2" opacity="0.7" />
+    <circle cx="90" cy="980" r="1.4" opacity="0.5" />
+    <circle cx="750" cy="960" r="1.8" opacity="0.6" />
+    <circle cx="340" cy="60" r="1.6" opacity="0.6" />
+    <circle cx="460" cy="1180" r="1.8" opacity="0.5" />
+  </g>
+</svg>

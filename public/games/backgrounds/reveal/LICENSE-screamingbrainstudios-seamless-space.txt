@@ -1,0 +1,14 @@
+Source: "Seamless Space Backgrounds" by Screaming Brain Studios (itch.io)
+https://screamingbrainstudios.itch.io/seamless-space-backgrounds
+
+Assets used (3 of 64, Small 512x512 set): Purple_Nebula_03, Blue_Nebula_05,
+Green_Nebula_04 -- renamed here to cc0-purple-nebula.png, cc0-blue-nebula.png,
+cc0-green-nebula.png. Seamless/tileable.
+
+License (verified directly from the pack's own included License.txt):
+"All Screaming Brain Studios assets have been released under the CC0/Public
+Domain License. You are free to use these assets in any and all projects,
+commercial or non-commercial, with no restrictions, and can be released with
+or without credit."
+
+CC0 1.0 Universal -- https://creativecommons.org/publicdomain/zero/1.0/

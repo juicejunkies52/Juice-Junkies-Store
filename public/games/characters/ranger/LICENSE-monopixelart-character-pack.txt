@@ -1,0 +1,13 @@
+Source: "2D Free Animated Character Pack" by MonoPixelArt (itch.io)
+https://monopixelart.itch.io/character-pack
+
+Assets used: "Character-No-Weapon" variant -- idle, walk, run, jump, fall,
+and slide animations only (pack includes many more: attacks, wall moves,
+dash, roll, sit, hurt, die -- not used here yet).
+
+License (verified directly on the itch.io page):
+"Feel free to use this asset pack in any project, commercial or not, but
+refrain from reselling and redistributing."
+
+Commercial use: allowed. Reselling/redistributing the asset pack itself:
+not allowed (does not apply to using it as character art inside this game).

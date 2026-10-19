@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1200" width="800" height="1200">
+  <defs>
+    <linearGradient id="dripBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0b0612" />
+      <stop offset="100%" stop-color="#030103" />
+    </linearGradient>
+    <linearGradient id="dripGreen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9bff6e" />
+      <stop offset="100%" stop-color="#1fae0a" />
+    </linearGradient>
+    <linearGradient id="dripPurple" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#b580ef" />
+      <stop offset="100%" stop-color="#4a0d82" />
+    </linearGradient>
+    <linearGradient id="dripYellow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff98a" />
+      <stop offset="100%" stop-color="#d4c400" />
+    </linearGradient>
+    <linearGradient id="dripPink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff8fcb" />
+      <stop offset="100%" stop-color="#c20c6f" />
+    </linearGradient>
+    <filter id="dripBlurSoft" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.4" />
+    </filter>
+  </defs>
+  <rect width="800" height="1200" fill="url(#dripBg)" />
+
+  <g opacity="0.9">
+    <path d="M 60 0 L 150 0 Q 160 320 110 420 Q 70 500 90 620 Q 110 760 60 820 Q 20 860 40 1200 L 100 1200 Q 70 860 110 820 Q 160 770 140 630 Q 120 500 160 420 Q 210 320 200 0 Z"
+          fill="url(#dripGreen)" filter="url(#dripBlurSoft)" />
+    <path d="M 240 0 L 300 0 Q 310 180 280 260 Q 250 330 270 460 Q 290 590 250 650 Q 220 690 240 1200 L 290 1200 Q 270 690 300 650 Q 330 600 310 470 Q 290 340 320 260 Q 350 180 340 0 Z"
+          fill="url(#dripPurple)" filter="url(#dripBlurSoft)" opacity="0.85" />
+    <path d="M 420 0 L 500 0 Q 512 260 470 360 Q 430 450 455 600 Q 480 760 430 850 Q 400 905 420 1200 L 480 1200 Q 455 905 490 850 Q 530 790 505 610 Q 480 460 520 360 Q 560 260 550 0 Z"
+          fill="url(#dripYellow)" filter="url(#dripBlurSoft)" opacity="0.8" />
+    <path d="M 610 0 L 690 0 Q 700 240 660 330 Q 625 410 648 540 Q 670 670 630 740 Q 605 785 620 1200 L 680 1200 Q 655 785 690 740 Q 725 695 700 550 Q 680 420 715 330 Q 750 240 740 0 Z"
+          fill="url(#dripPink)" filter="url(#dripBlurSoft)" opacity="0.75" />
+  </g>
+
+  <g fill="#ffffff" opacity="0.7">
+    <circle cx="150" cy="50" r="2" />
+    <circle cx="690" cy="130" r="1.6" />
+    <circle cx="520" cy="60" r="1.8" />
+    <circle cx="350" cy="1000" r="2" />
+    <circle cx="730" cy="1080" r="1.6" />
+    <circle cx="40" cy="950" r="1.8" />
+  </g>
+</svg>

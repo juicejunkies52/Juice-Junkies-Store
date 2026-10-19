@@ -11,6 +11,10 @@ model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String?
+  // Nullable so a Google-only account (no password set) can still exist.
+  password  String?
+  googleId  String?  @unique
+  image     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   orders    Order[]
@@ -49,6 +53,8 @@ model Product {
   designFiles     String      @default("[]")
   mockupImages    String      @default("[]")
   customImages    Boolean     @default(false)
+  featured        Boolean     @default(false)
+  featuredOrder   Int         @default(0)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   orderItems      OrderItem[]
@@ -82,6 +88,8 @@ model Order {
   billingAddress        String
   stripePaymentIntentId String?
   fulfillmentStatus     String      @default("unfulfilled")
+  shippingMethod        String      @default("standard")
+  shippingAmount        Float       @default(0)
   printfulOrderId       String?
   trackingNumber        String?
   trackingUrl           String?
@@ -203,4 +211,146 @@ model FlingCounter {
   id        String   @id @default("global")
   count     Int      @default(0)
   updatedAt DateTime @updatedAt
+}
+
+// Signatures left on the hidden "secret wall" easter egg (opened by
+// bouncing a butterfly onto a held 999 ten times). x/y are percentages of
+// viewport width/height so placement stays consistent across screen sizes.
+// v1 of the catch-and-collect easter egg: no accounts, just an anonymous
+// per-browser visitor id (random, stored in localStorage) so a collection
+// can persist across visits without any login. Deliberately lossy -- it
+// won't follow someone across devices or survive clearing site data, and
+// Catches start out tied only to an anonymous visitorId. Once that browser
+// signs in, matching rows get userId filled in (see /api/creatures/link-
+// visitor) so the collection becomes permanent instead of tied to one
+// browser's local storage -- visitorId is kept either way as a record of
+// where the catch originated.
+model CaughtCreature {
+  id           String   @id @default(cuid())
+  visitorId    String
+  userId       String?
+  creatureType String
+  caughtAt     DateTime @default(now())
+
+  @@unique([visitorId, creatureType])
+  @@unique([userId, creatureType])
+  @@index([visitorId])
+  @@index([userId])
+}
+
+// Where a caught creature was last left in the decoration area -- one row
+// per creature you own, updated whenever you drag it somewhere new. Same
+// anonymous-visitorId-first, userId-once-signed-in pattern as
+// CaughtCreature, and for the same reason.
+model CreatureDecoration {
+  id           String   @id @default(cuid())
+  visitorId    String
+  userId       String?
+  creatureType String
+  x            Float
+  y            Float
+  updatedAt    DateTime @updatedAt
+
+  @@unique([visitorId, creatureType])
+  @@unique([userId, creatureType])
+  @@index([visitorId])
+  @@index([userId])
+}
+
+// A background image fully revealed and kept, from destroy mode's
+// reveal-through-destruction mechanic (see lib/backgrounds.ts for the
+// pool). Same anonymous-visitorId-first, userId-once-signed-in pattern as
+// CaughtCreature, and for the same reason -- an unlock should survive a
+// signup without losing the browser that actually earned it.
+model UnlockedBackground {
+  id           String   @id @default(cuid())
+  visitorId    String
+  userId       String?
+  backgroundId String
+  unlockedAt   DateTime @default(now())
+
+  @@unique([visitorId, backgroundId])
+  @@unique([userId, backgroundId])
+  @@index([visitorId])
+  @@index([userId])
+}
+
+model WallSignature {
+  id        String   @id @default(cuid())
+  name      String
+  x         Float
+  y         Float
+  color     String   @default("#39ff14")
+  createdAt DateTime @default(now())
+}
+
+// Site-wide running total of every qualifying "bounce a butterfly on a
+// held 999" hit, across everyone, forever -- not just the batches of 10
+// that reopen the wall. Same singleton pattern as FlingCounter.
+model SecretBounceCounter {
+  id        String   @id @default("global")
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+// Generic record of a paid digital feature unlock -- not merch-specific,
+// so future paid extras (beyond Neon Sketch) can reuse this same table
+// instead of each needing their own. Only ever created from the Stripe
+// webhook on a confirmed payment_intent.succeeded, never from the client,
+// so it can't be granted without an actual completed charge.
+model DigitalUnlock {
+  id                    String   @id @default(cuid())
+  userId                String
+  feature               String
+  stripePaymentIntentId String?
+  unlockedAt            DateTime @default(now())
+
+  @@unique([userId, feature])
+  @@index([userId])
+}
+
+// One saved drawing per account for the Neon Sketch decoration-area tool.
+// Stored as a flattened PNG data URL -- simplest thing that works, no
+// stroke-replay complexity needed for a single persisted canvas.
+model NeonSketch {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  imageData String
+  updatedAt DateTime @updatedAt
+}
+
+// One row per account's personal best on the 999 Flutter mini-game.
+// Guest/anonymous scores never land here -- only logged-in accounts can
+// hold the global #1 spot and attach a message, same gating as every other
+// persistent feature this session (collection, decorations, sketch).
+model FlutterScore {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  name        String
+  score       Int
+  message     String?
+  updatedAt   DateTime @updatedAt
+}
+
+// One row per account's personal best wave reached in 999 Last Stand.
+// Same guest-exclusion rule as every other persistent feature -- only
+// logged-in accounts get a leaderboard entry.
+model LastStandScore {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  name      String
+  wave      Int
+  updatedAt DateTime @updatedAt
+}
+
+// One row per account's LIFETIME destruction count in "Smash Juice
+// Junkies" -- unlike the other scores above this is cumulative (increments
+// every session) rather than a personal best, since it backs an XP/rank
+// system that should only ever go up. Same guest-exclusion rule.
+model DestroyScore {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  name           String
+  totalDestroyed Int      @default(0)
+  updatedAt      DateTime @updatedAt
 }

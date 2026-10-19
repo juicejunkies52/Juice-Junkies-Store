@@ -1,0 +1,12 @@
+Source: "Forest Monsters 2D Pixel Art" by MonoPixelArt (itch.io)
+https://monopixelart.itch.io/forest-monsters-pixel-art
+
+Asset used: Mushroom enemy, free tier, "without VFX" run animation
+(mushroom-run.png).
+
+License (verified directly on the itch.io page, free tier):
+"Feel free to use this asset pack in any project, commercial or not, but
+refrain from reselling, redistributing, or modifying it."
+
+Commercial use: allowed. Reselling/redistributing the asset pack itself:
+not allowed (does not apply to using it as enemy art inside this game).
