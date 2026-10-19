@@ -67,7 +67,7 @@ export default function ProductCard({ product, index = 0, viewMode = 'grid' }: P
       }}
     >
       {/* Product Image */}
-      <div className="relative aspect-square overflow-hidden bg-gray-900/50">
+      <Link href={`/product/${product.slug}`} className="relative aspect-square overflow-hidden bg-gray-900/50 block">
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent z-10" />
 
         <ProductImage
@@ -114,7 +114,7 @@ export default function ProductCard({ product, index = 0, viewMode = 'grid' }: P
 
         {/* Hover overlay */}
         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-10" />
-      </div>
+      </Link>
 
       {/* Product Info */}
       <div className="p-4">

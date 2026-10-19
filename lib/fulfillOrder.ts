@@ -50,9 +50,13 @@ export async function fulfillPrintfulOrder(orderId: string): Promise<FulfillResu
     throw new Error(`Order ${orderId} is missing a complete shipping address`)
   }
 
+  // Printful's generic method codes -- it resolves these to the actual
+  // carrier/service per destination country on its own.
+  const printfulShipping = order.shippingMethod === 'express' ? 'PRIORITY' : 'STANDARD'
+
   const printfulOrderData = {
     external_id: order.id,
-    shipping: 'STANDARD',
+    shipping: printfulShipping,
     recipient: {
       name: shippingAddress.name || '',
       address1: shippingAddress.address,

@@ -20,8 +20,15 @@ interface Product {
   }
 }
 
+interface Category {
+  id: string
+  name: string
+  slug: string
+}
+
 export default function ShopPage() {
   const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
@@ -43,7 +50,19 @@ export default function ShopPage() {
       }
     }
 
+    const fetchCategories = async () => {
+      try {
+        const response = await fetch('/api/categories')
+        if (response.ok) {
+          setCategories(await response.json())
+        }
+      } catch (error) {
+        console.error('Error fetching categories:', error)
+      }
+    }
+
     fetchProducts()
+    fetchCategories()
   }, [])
 
   // Filter products based on search and category
@@ -71,20 +90,21 @@ export default function ShopPage() {
     }
   })
 
-  const categories = [
-    { slug: 'all', name: 'All Products' },
-    { slug: 'apparel', name: 'Apparel' },
-    { slug: 'hoodies', name: 'Hoodies' },
-    { slug: 'tshirts', name: 'T-Shirts' },
-    { slug: 'accessories', name: 'Accessories' },
-    { slug: 'limited', name: 'Limited Edition' },
-  ]
+  const categoryTabs = [{ slug: 'all', name: 'All Products' }, ...categories]
 
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Section */}
       <section className="relative py-20 px-6 bg-gradient-to-br from-purple-900/20 to-green-400/20">
         <div className="max-w-7xl mx-auto text-center">
+          <motion.p
+            className="mb-3 font-mono text-sm font-bold uppercase tracking-widest text-accent"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+          >
+            Exclusive Launch Collection
+          </motion.p>
           <motion.h1
             className="text-5xl md:text-7xl font-bold mb-6 text-gradient font-mono"
             initial={{ opacity: 0, y: 30 }}
@@ -138,7 +158,7 @@ export default function ShopPage() {
 
             {/* Categories */}
             <div className="flex flex-wrap gap-2">
-              {categories.map((category) => (
+              {categoryTabs.map((category) => (
                 <button
                   key={category.slug}
                   onClick={() => setSelectedCategory(category.slug)}

@@ -96,6 +96,14 @@ function extractShippingAddress(paymentIntent: Stripe.PaymentIntent) {
 }
 
 async function handleSuccessfulPayment(paymentIntent: Stripe.PaymentIntent) {
+  // Digital unlocks (e.g. Neon Sketch) are a completely separate payment
+  // path from merch orders -- same webhook event, different metadata
+  // shape, so branch here before assuming this is an order.
+  if (paymentIntent.metadata?.type === 'digital_unlock') {
+    await handleDigitalUnlock(paymentIntent)
+    return
+  }
+
   const orderId = paymentIntent.metadata?.orderId
 
   if (!orderId) {
@@ -114,6 +122,23 @@ async function handleSuccessfulPayment(paymentIntent: Stripe.PaymentIntent) {
   })
 
   console.log('✅ Order marked as paid:', orderId)
+}
+
+async function handleDigitalUnlock(paymentIntent: Stripe.PaymentIntent) {
+  const userId = paymentIntent.metadata?.userId
+  const feature = paymentIntent.metadata?.feature
+
+  if (!userId || !feature) {
+    throw new Error(`digital_unlock payment with missing metadata: ${paymentIntent.id}`)
+  }
+
+  await prisma.digitalUnlock.upsert({
+    where: { userId_feature: { userId, feature } },
+    update: { stripePaymentIntentId: paymentIntent.id },
+    create: { userId, feature, stripePaymentIntentId: paymentIntent.id }
+  })
+
+  console.log(`✅ Digital unlock granted: ${feature} for user ${userId}`)
 }
 
 async function handleFailedPayment(paymentIntent: Stripe.PaymentIntent) {

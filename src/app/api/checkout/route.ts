@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { stripe, formatAmountForStripe } from '../../../../lib/stripe'
 import { calculateTax, createTaxCalculationForStripe } from '../../../lib/tax'
+import { calculateShipping, isShippingMethod, SHIPPING_METHODS } from '../../../lib/shipping'
 import { prisma } from '../../../../lib/prisma'
+import { getCurrentUser } from '../../../../lib/userAuth'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const { items, shippingAddress, billingAddress } = body
+    const shippingMethod = isShippingMethod(body.shippingMethod) ? body.shippingMethod : 'standard'
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
@@ -19,7 +22,7 @@ export async function POST(request: NextRequest) {
     const subtotal = items.reduce((sum: number, item: any) =>
       sum + (item.price * item.quantity), 0)
 
-    const shipping = subtotal >= 1 ? 0 : 9.99
+    const shipping = calculateShipping(subtotal, shippingMethod)
 
     // Calculate tax based on shipping address
     const taxCalculation = calculateTax(subtotal, shipping, shippingAddress)
@@ -38,11 +41,19 @@ export async function POST(request: NextRequest) {
     // address is usually not known yet at this point (collected via the
     // Address Element during payment confirmation) and gets filled in by
     // the webhook once the payment succeeds.
+    // Attaches the order to an account when someone's signed in while
+    // checking out; stays null for guest checkout, which keeps working
+    // exactly as before -- login is never required to buy anything.
+    const user = await getCurrentUser(request)
+
     const order = await prisma.order.create({
       data: {
+        userId: user?.id,
         totalAmount: total,
         shippingAddress: JSON.stringify(shippingAddress || {}),
         billingAddress: JSON.stringify(billingAddress || shippingAddress || {}),
+        shippingMethod,
+        shippingAmount: shipping,
         status: 'pending',
         items: {
           create: items.map((item: any) => ({
@@ -68,6 +79,7 @@ export async function POST(request: NextRequest) {
         itemCount: items.length.toString(),
         subtotal: subtotal.toString(),
         shipping: shipping.toString(),
+        shippingMethod,
         tax: taxCalculation.taxAmount.toString(),
         taxRate: taxCalculation.taxRate.toString(),
       },
@@ -98,6 +110,7 @@ export async function POST(request: NextRequest) {
         rate: taxCalculation.taxRate,
         subtotal: taxCalculation.subtotal,
         shipping: shipping,
+        shippingMethod,
         total: total
       }
     })

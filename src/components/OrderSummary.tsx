@@ -5,13 +5,20 @@ import { useState, useEffect } from 'react'
 import { useCart } from '@/contexts/CartContext'
 import ProductImage from './ProductImage'
 import { calculateTax, formatTaxRate } from '@/lib/tax'
+import { SHIPPING_METHODS, calculateShipping, ShippingMethod } from '@/lib/shipping'
 
-export default function OrderSummary() {
+export default function OrderSummary({
+  shippingMethod,
+  onShippingMethodChange
+}: {
+  shippingMethod: ShippingMethod
+  onShippingMethodChange: (method: ShippingMethod) => void
+}) {
   const { state } = useCart()
   const [shippingAddress, setShippingAddress] = useState<any>(null)
 
   const subtotal = state.total
-  const shipping = subtotal >= 1 ? 0 : 9.99
+  const shipping = calculateShipping(subtotal, shippingMethod)
 
   // Calculate tax based on shipping address (if available)
   const taxCalculation = calculateTax(subtotal, shipping, shippingAddress)
@@ -79,11 +86,36 @@ export default function OrderSummary() {
           <span>${subtotal.toFixed(2)}</span>
         </div>
 
-        <div className="flex justify-between text-gray-300">
-          <span>Shipping</span>
-          <span className={shipping === 0 ? 'text-green-400' : ''}>
-            {shipping === 0 ? 'FREE' : `$${shipping.toFixed(2)}`}
-          </span>
+        <div className="space-y-2">
+          <span className="text-gray-300 text-sm">Shipping method</span>
+          <div className="grid grid-cols-2 gap-2">
+            {(Object.entries(SHIPPING_METHODS) as [ShippingMethod, typeof SHIPPING_METHODS[ShippingMethod]][]).map(
+              ([key, config]) => {
+                const price = calculateShipping(subtotal, key)
+                const selected = shippingMethod === key
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => onShippingMethodChange(key)}
+                    className={`rounded-lg border p-3 text-left transition-colors ${
+                      selected
+                        ? 'border-accent bg-accent/10'
+                        : 'border-gray-700 bg-gray-900/30 hover:border-gray-500'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-white font-medium text-sm">{config.label}</span>
+                      <span className={`text-sm font-semibold ${price === 0 ? 'text-green-400' : 'text-accent'}`}>
+                        {price === 0 ? 'FREE' : `$${price.toFixed(2)}`}
+                      </span>
+                    </div>
+                    <p className="text-gray-400 text-xs mt-1">{config.eta}</p>
+                  </button>
+                )
+              }
+            )}
+          </div>
         </div>
 
         {shipping === 0 && (
@@ -116,17 +148,6 @@ export default function OrderSummary() {
         <div className="flex justify-between text-xl font-bold text-white border-t border-gray-700 pt-3">
           <span>Total</span>
           <span className="text-accent">${total.toFixed(2)}</span>
-        </div>
-
-        {/* Estimated Delivery */}
-        <div className="mt-6 p-4 bg-purple-900/20 rounded-lg border border-purple-500/30">
-          <h4 className="text-white font-semibold mb-2">Estimated Delivery</h4>
-          <p className="text-gray-300 text-sm">
-            🚚 Standard: 5-7 business days
-          </p>
-          <p className="text-gray-300 text-sm">
-            ⚡ Express: 2-3 business days (+$15.99)
-          </p>
         </div>
 
         {/* 999 Club Benefits */}

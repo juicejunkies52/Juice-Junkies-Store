@@ -1,13 +1,34 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { useRouter } from 'next/navigation'
+import { useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { CheckCircle, Download, Mail, Home } from 'lucide-react'
 import AnimatedBackground from '@/components/AnimatedBackground'
 import FloatingButterfly from '@/components/FloatingButterfly'
+import { markPurchased } from '../../../../lib/purchaseStatus'
+import { getVisitorId } from '../../../../lib/visitorId'
 
-export default function OrderSuccessPage() {
+function OrderSuccessContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const isDemo = searchParams.get('demo') === 'true'
+
+  useEffect(() => {
+    if (isDemo) return
+    markPurchased()
+
+    // Reward for actually buying something: an exclusive creature that
+    // never spawns in the wild, auto-caught on a real order.
+    const visitorId = getVisitorId()
+    if (visitorId) {
+      fetch('/api/creatures/catch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visitorId, creatureType: 'goldencarton' })
+      }).catch(() => {})
+    }
+  }, [isDemo])
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
@@ -158,5 +179,17 @@ export default function OrderSuccessPage() {
         </motion.div>
       </div>
     </div>
+  )
+}
+
+export default function OrderSuccessPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-16 h-16 border-4 border-accent/30 border-t-accent rounded-full animate-spin" />
+      </div>
+    }>
+      <OrderSuccessContent />
+    </Suspense>
   )
 }

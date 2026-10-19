@@ -55,6 +55,8 @@ export default function ProductPage() {
   const [quantity, setQuantity] = useState(1)
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null)
+  const [selectedColor, setSelectedColor] = useState<string | null>(null)
+  const [selectedSize, setSelectedSize] = useState<string | null>(null)
 
   useEffect(() => {
     if (slug) {
@@ -70,6 +72,8 @@ export default function ProductPage() {
         setProduct(data)
         if (data.variants?.length > 0) {
           setSelectedVariantId(data.variants[0].id)
+          setSelectedColor(data.variants[0].color ?? null)
+          setSelectedSize(data.variants[0].size ?? null)
         }
       }
     } catch (error) {
@@ -78,6 +82,26 @@ export default function ProductPage() {
       setLoading(false)
     }
   }
+
+  // Distinct color/size options across all variants -- a dropdown only
+  // shows up for whichever dimension actually varies (e.g. the phone case
+  // only varies by size, the tumbler only by color).
+  const colorOptions = Array.from(new Set((product?.variants ?? []).map(v => v.color).filter(Boolean))) as string[]
+  const sizeOptions = Array.from(new Set((product?.variants ?? []).map(v => v.size).filter(Boolean))) as string[]
+
+  useEffect(() => {
+    if (!product) return
+    const match = product.variants.find(v =>
+      (colorOptions.length < 2 || v.color === selectedColor) &&
+      (sizeOptions.length < 2 || v.size === selectedSize)
+    )
+    if (match && match.id !== selectedVariantId) {
+      setSelectedVariantId(match.id)
+      setQuantity(1)
+      setSelectedImageIndex(0)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedColor, selectedSize])
 
   const selectedVariant = product?.variants.find(v => v.id === selectedVariantId) || null
   const displayPrice = selectedVariant?.price ?? product?.price ?? 0
@@ -274,39 +298,42 @@ export default function ProductPage() {
               )}
             </div>
 
-            {/* Variant Selector */}
-            {product.variants.length > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">
-                  Options
-                </label>
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {product.variants.map((variant) => {
-                    const label = [variant.color, variant.size].filter(Boolean).join(' / ') || 'Option'
-                    const isSelected = variant.id === selectedVariantId
-                    const variantOutOfStock = variant.inventoryQty === 0
-                    return (
-                      <button
-                        key={variant.id}
-                        onClick={() => {
-                          setSelectedVariantId(variant.id)
-                          setQuantity(1)
-                          setSelectedImageIndex(0)
-                        }}
-                        disabled={variantOutOfStock}
-                        className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-colors ${
-                          variantOutOfStock
-                            ? 'border-gray-800 text-gray-600 cursor-not-allowed'
-                            : isSelected
-                            ? 'border-accent text-accent bg-accent/10'
-                            : 'border-gray-700 text-gray-300 hover:border-gray-500'
-                        }`}
-                      >
-                        {label}{variantOutOfStock ? ' (Out of stock)' : ''}
-                      </button>
-                    )
-                  })}
-                </div>
+            {/* Variant Selectors -- a dropdown per dimension that actually
+                varies, instead of one button per color/size combination */}
+            {(colorOptions.length > 1 || sizeOptions.length > 1) && (
+              <div className="flex flex-wrap gap-4 mb-4">
+                {colorOptions.length > 1 && (
+                  <div className="flex-1 min-w-[140px]">
+                    <label className="block text-sm font-medium text-white mb-2">
+                      Color
+                    </label>
+                    <select
+                      value={selectedColor ?? ''}
+                      onChange={(e) => setSelectedColor(e.target.value)}
+                      className="w-full px-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:border-accent focus:outline-none transition-colors"
+                    >
+                      {colorOptions.map((color) => (
+                        <option key={color} value={color}>{color}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {sizeOptions.length > 1 && (
+                  <div className="flex-1 min-w-[140px]">
+                    <label className="block text-sm font-medium text-white mb-2">
+                      Size
+                    </label>
+                    <select
+                      value={selectedSize ?? ''}
+                      onChange={(e) => setSelectedSize(e.target.value)}
+                      className="w-full px-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:border-accent focus:outline-none transition-colors"
+                    >
+                      {sizeOptions.map((size) => (
+                        <option key={size} value={size}>{size}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             )}
 

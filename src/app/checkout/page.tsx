@@ -10,6 +10,7 @@ import { getStripe } from '../../../lib/stripe'
 import AnimatedBackground from '@/components/AnimatedBackground'
 import CheckoutForm from '@/components/CheckoutForm'
 import OrderSummary from '@/components/OrderSummary'
+import { ShippingMethod } from '@/lib/shipping'
 
 // Demo checkout form for development
 function DemoCheckoutForm() {
@@ -80,6 +81,7 @@ export default function CheckoutPage() {
   const [clientSecret, setClientSecret] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [stripePromise, setStripePromise] = useState<any>(null)
+  const [shippingMethod, setShippingMethod] = useState<ShippingMethod>('standard')
 
   // Initialize Stripe promise on client side
   useEffect(() => {
@@ -112,6 +114,7 @@ export default function CheckoutPage() {
             items: state.items,
             shippingAddress: null, // Will be collected in checkout form
             billingAddress: null,
+            shippingMethod,
           }),
         })
 
@@ -129,7 +132,7 @@ export default function CheckoutPage() {
     }
 
     createPaymentIntent()
-  }, [state.items])
+  }, [state.items, shippingMethod])
 
   if (loading) {
     return (
@@ -274,7 +277,7 @@ export default function CheckoutPage() {
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
-              <OrderSummary />
+              <OrderSummary shippingMethod={shippingMethod} onShippingMethodChange={setShippingMethod} />
             </motion.div>
           </div>
         </div>

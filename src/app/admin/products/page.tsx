@@ -11,7 +11,8 @@ import {
   Eye,
   Search,
   Filter,
-  MoreVertical
+  MoreVertical,
+  Star
 } from 'lucide-react'
 import AddProductModal from '../../../components/admin/AddProductModal'
 
@@ -26,6 +27,8 @@ interface Product {
   sku?: string
   tags: string[]
   status: string
+  featured: boolean
+  featuredOrder: number
   category?: {
     name: string
   }
@@ -53,6 +56,51 @@ export default function AdminProducts() {
       console.error('Failed to fetch products:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleDelete = async (product: Product) => {
+    if (!confirm(`Delete "${product.name}"? This can't be undone.`)) return
+    try {
+      const response = await fetch(`/api/admin/products/${product.id}`, { method: 'DELETE' })
+      const data = await response.json()
+      if (!response.ok) {
+        alert(data.error || 'Failed to delete product')
+        return
+      }
+      setProducts(prev => prev.filter(p => p.id !== product.id))
+    } catch (error) {
+      console.error('Failed to delete product:', error)
+      alert('Failed to delete product')
+    }
+  }
+
+  const handleToggleFeatured = async (product: Product) => {
+    const next = !product.featured
+    setProducts(prev => prev.map(p => p.id === product.id ? { ...p, featured: next } : p))
+    try {
+      const response = await fetch(`/api/admin/products/${product.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ featured: next })
+      })
+      if (!response.ok) throw new Error('Failed')
+    } catch (error) {
+      console.error('Failed to update featured status:', error)
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, featured: !next } : p))
+    }
+  }
+
+  const handleFeaturedOrderChange = async (product: Product, order: number) => {
+    setProducts(prev => prev.map(p => p.id === product.id ? { ...p, featuredOrder: order } : p))
+    try {
+      await fetch(`/api/admin/products/${product.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ featuredOrder: order })
+      })
+    } catch (error) {
+      console.error('Failed to update featured order:', error)
     }
   }
 
@@ -107,17 +155,42 @@ export default function AdminProducts() {
 
         {/* Quick Actions */}
         <div className="absolute bottom-2 right-2 flex gap-1">
+          <button
+            onClick={() => handleToggleFeatured(product)}
+            title={product.featured ? 'Remove from Featured Products' : 'Add to Featured Products'}
+            className={`p-1.5 rounded-lg transition-colors ${
+              product.featured ? 'bg-accent text-black' : 'bg-black/80 hover:bg-black/90 text-white'
+            }`}
+          >
+            <Star className="w-4 h-4" fill={product.featured ? 'currentColor' : 'none'} />
+          </button>
           <button className="bg-black/80 hover:bg-black/90 text-white p-1.5 rounded-lg transition-colors">
             <Eye className="w-4 h-4" />
           </button>
           <button className="bg-black/80 hover:bg-black/90 text-white p-1.5 rounded-lg transition-colors">
             <Edit3 className="w-4 h-4" />
           </button>
-          <button className="bg-red-600/80 hover:bg-red-600/90 text-white p-1.5 rounded-lg transition-colors">
+          <button
+            onClick={() => handleDelete(product)}
+            className="bg-red-600/80 hover:bg-red-600/90 text-white p-1.5 rounded-lg transition-colors"
+          >
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
       </div>
+
+      {product.featured && (
+        <div className="mb-3 flex items-center gap-2 text-sm">
+          <Star className="w-3.5 h-3.5 text-accent" fill="currentColor" />
+          <span className="text-accent">Featured, position</span>
+          <input
+            type="number"
+            value={product.featuredOrder}
+            onChange={(e) => handleFeaturedOrderChange(product, parseInt(e.target.value) || 0)}
+            className="w-16 bg-gray-900/50 border border-gray-700 rounded px-2 py-1 text-white focus:border-accent focus:outline-none"
+          />
+        </div>
+      )}
 
       {/* Product Info */}
       <div className="space-y-3">

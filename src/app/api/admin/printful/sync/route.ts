@@ -105,11 +105,19 @@ export async function POST(request: NextRequest) {
           // letting sync overwrite them with Printful's auto-selected preview.
           const skipImages = existingProduct.customImages === true
 
+          // Base display price tracks the first variant's current retail
+          // price from Printful -- previously this was only ever set once
+          // at creation, so a price change in Printful never showed up here
+          // on re-sync even though each variant's own price already did.
+          const firstVariant = productDetails.sync_variants?.[0]
+          const basePrice = firstVariant ? parseFloat(firstVariant.retail_price) : NaN
+
           // Update existing product
           const updatedProduct = await prisma.product.update({
             where: { id: existingProduct.id },
             data: {
               name: printfulProduct.name,
+              ...(Number.isNaN(basePrice) ? {} : { price: basePrice }),
               ...(skipImages ? {} : {
                 images: JSON.stringify(previewImages),
                 mockupImages: JSON.stringify(previewImages)
