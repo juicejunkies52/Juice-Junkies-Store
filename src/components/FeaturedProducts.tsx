@@ -19,6 +19,17 @@ interface Product {
   }
 }
 
+// Clothing reads as one visual group on the homepage instead of being
+// scattered among accessories/home goods; anything else keeps arriving in
+// whatever order the API already gave it.
+const CLOTHING_SLUGS = new Set(['hoodies', 't-shirts', 'baby-kids'])
+
+function groupClothingFirst(products: Product[]) {
+  const clothing = products.filter((p) => p.category && CLOTHING_SLUGS.has(p.category.slug))
+  const rest = products.filter((p) => !p.category || !CLOTHING_SLUGS.has(p.category.slug))
+  return [...clothing, ...rest]
+}
+
 export default function FeaturedProducts() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -26,10 +37,17 @@ export default function FeaturedProducts() {
   useEffect(() => {
     const fetchProducts = async () => {
       try {
-        const response = await fetch('/api/products?limit=8')
+        const response = await fetch('/api/products?featured=true&limit=12')
         if (response.ok) {
           const data = await response.json()
-          setProducts(data)
+          if (data.length > 0) {
+            setProducts(groupClothingFirst(data))
+          } else {
+            // Nothing's been marked featured yet in admin -- fall back to
+            // the full catalog so the section isn't empty.
+            const fallback = await fetch('/api/products?limit=12')
+            if (fallback.ok) setProducts(groupClothingFirst(await fallback.json()))
+          }
         }
       } catch (error) {
         console.error('Error fetching products:', error)
@@ -43,7 +61,7 @@ export default function FeaturedProducts() {
 
   if (loading) {
     return (
-      <section className="relative z-40 py-20 px-6">
+      <section id="collections" className="relative z-40 py-20 px-6">
         <div className="max-w-7xl mx-auto">
           <motion.h2
             className="text-4xl md:text-6xl font-bold text-center mb-16 text-gradient font-mono"
@@ -51,7 +69,7 @@ export default function FeaturedProducts() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            FEATURED PRODUCTS
+            JUICE JUNKIES LAUNCH COLLECTION
           </motion.h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {[...Array(8)].map((_, i) => (
@@ -67,7 +85,7 @@ export default function FeaturedProducts() {
   }
 
   return (
-    <section className="relative z-40 py-20 px-6">
+    <section id="collections" className="relative z-40 py-20 px-6">
       <div className="max-w-7xl mx-auto">
         <motion.h2
           className="text-4xl md:text-6xl font-bold text-center mb-16 text-gradient font-mono"
@@ -75,7 +93,7 @@ export default function FeaturedProducts() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
         >
-          FEATURED PRODUCTS
+          JUICE JUNKIES LAUNCH COLLECTION
         </motion.h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

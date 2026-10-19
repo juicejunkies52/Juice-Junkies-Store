@@ -9,6 +9,7 @@ import SoundWaveVisualization, { FloatingMusicNotes } from '@/components/SoundWa
 import Logo from '@/components/Logo'
 import FeaturedProducts from '@/components/FeaturedProducts'
 import CartIcon from '@/components/CartIcon'
+import AccountMenu from '@/components/AccountMenu'
 import AudioPlayer from '@/components/AudioPlayer'
 import MemorialSection from '@/components/MemorialSection'
 import EnhancedButterflies from '@/components/EnhancedButterflies'
@@ -65,7 +66,7 @@ export default function Home() {
       <AnimatedBackground />
 
       {/* Enhanced Butterflies */}
-      <EnhancedButterflies />
+      <EnhancedButterflies subtle />
 
       {/* Floating Music Notes */}
       <FloatingMusicNotes />
@@ -97,6 +98,7 @@ export default function Home() {
           <a href="#collections" className="text-white hover:text-accent transition-colors">Collections</a>
           <a href="/lyrics" className="text-white hover:text-accent transition-colors">Lyrics</a>
           <a href="#about" className="text-white hover:text-accent transition-colors">About</a>
+          <AccountMenu />
           <CartIcon />
         </motion.div>
       </nav>
@@ -137,14 +139,10 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.6 }}
           >
-            <button className="btn-primary neon-glow flex items-center gap-2">
+            <a href="#collections" className="btn-primary neon-glow flex items-center gap-2">
               <ShoppingBag className="w-5 h-5" />
-              Shop Juice Collection
-            </button>
-            <button className="btn-secondary flex items-center gap-2">
-              <Heart className="w-5 h-5" />
-              Memorial Collection
-            </button>
+              Shop the Launch Collection
+            </a>
           </motion.div>
         </motion.div>
 
