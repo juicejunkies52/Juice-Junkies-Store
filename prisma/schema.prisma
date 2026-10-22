@@ -354,3 +354,28 @@ model DestroyScore {
   totalDestroyed Int      @default(0)
   updatedAt      DateTime @updatedAt
 }
+
+// Full save/continue for "999 Depths" -- visitorId-primary, guest-friendly
+// like CaughtCreature/UnlockedBackground (not login-gated like the score
+// models above, since a world you dug and built is worth keeping even for
+// a casual visitor). World generation is deterministic from `seed`, so we
+// only persist the sparse diff against that regenerated baseline rather
+// than the whole tile grid -- tileDiffs is a JSON object of
+// "<tileIndex>": <tileId> entries for cells that differ from the baseline.
+// Walls are immutable in this version (no wall mining/placing), so there's
+// nothing to diff there.
+model MineWorld {
+  id           String   @id @default(cuid())
+  visitorId    String   @unique
+  userId       String?  @unique
+  seed         Int
+  width        Int
+  height       Int
+  tileDiffs    Json
+  playerX      Float
+  playerY      Float
+  inventory    Json
+  depthReached Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

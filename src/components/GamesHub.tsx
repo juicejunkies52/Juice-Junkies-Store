@@ -4,8 +4,11 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import FlappyGame from './FlappyGame'
 import LastStandGame from './LastStandGame'
-import ClubhouseGame from './ClubhouseGame'
-import NightsGame from './NightsGame'
+import MineWorldGame from './MineWorldGame'
+// ClubhouseGame and NightsGame are archived for now (not deleted -- just
+// not wired into the hub) to cut scope/clutter while the destroy-mode
+// rework is the focus. Re-add the imports + buttons + AnimatePresence
+// blocks below (see git history) to bring them back.
 
 // Site owner's own account -- the external Sprite Fusion link is kept
 // visible only here (for comparison/reference) now that our own in-house
@@ -30,8 +33,7 @@ export default function GamesHub({
 }) {
   const [playingFlutter, setPlayingFlutter] = useState(false)
   const [playingLastStand, setPlayingLastStand] = useState(false)
-  const [playingClubhouse, setPlayingClubhouse] = useState(false)
-  const [playingNights, setPlayingNights] = useState(false)
+  const [playingMineWorld, setPlayingMineWorld] = useState(false)
   const [isOwner, setIsOwner] = useState(false)
 
   useEffect(() => {
@@ -95,28 +97,13 @@ export default function GamesHub({
           </button>
 
           <button
-            onClick={() => setPlayingClubhouse(true)}
+            onClick={() => setPlayingMineWorld(true)}
             className="flex items-center gap-4 rounded-xl border border-accent/30 bg-black/60 p-4 text-left transition-colors hover:border-accent"
           >
-            <span className="text-3xl">🏠</span>
+            <span className="text-3xl">⛏️</span>
             <span>
-              <span className="block font-semibold text-white">999 Clubhouse</span>
-              <span className="block text-xs text-white/50">
-                Match tiles to earn Juice, then spend it fixing up the clubhouse.
-              </span>
-            </span>
-          </button>
-
-          <button
-            onClick={() => setPlayingNights(true)}
-            className="flex items-center gap-4 rounded-xl border border-accent/30 bg-black/60 p-4 text-left transition-colors hover:border-accent"
-          >
-            <span className="text-3xl">🏕️</span>
-            <span>
-              <span className="block font-semibold text-white">999 Nights</span>
-              <span className="block text-xs text-white/50">
-                Gather by day, build up your camp, survive the Shades at night.
-              </span>
+              <span className="block font-semibold text-white">999 Depths</span>
+              <span className="block text-xs text-white/50">Dig, mine, and build in your own world. Saves as you go.</span>
             </span>
           </button>
 
@@ -182,13 +169,8 @@ export default function GamesHub({
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {playingClubhouse && <ClubhouseGame onClose={() => setPlayingClubhouse(false)} />}
-      </AnimatePresence>
+      <AnimatePresence>{playingMineWorld && <MineWorldGame visitorId={visitorId} onClose={() => setPlayingMineWorld(false)} />}</AnimatePresence>
 
-      <AnimatePresence>
-        {playingNights && <NightsGame onClose={() => setPlayingNights(false)} />}
-      </AnimatePresence>
     </motion.div>
   )
 }

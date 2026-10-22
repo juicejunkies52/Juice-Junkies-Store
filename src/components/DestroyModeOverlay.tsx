@@ -171,6 +171,14 @@ const FRAG_ANGULAR_FRICTION = 0.96
 const FRAG_SETTLE_SPEED = 0.6
 const FRAG_LIFETIME_MS = 5000
 const FRAG_MAX_LIVE = 140
+// particlesRef backs React state (setParticles re-renders the whole
+// array every tick, unlike the fragment/FX systems which mutate real
+// DOM nodes directly) -- unlike FRAG_MAX_LIVE, nothing capped this
+// before. With the flamethrower able to call destroyOne up to
+// FLAMETHROWER_MAX_HITS times per 90ms tick, each spawning up to 44
+// particles, a sustained hold over dense content could otherwise push
+// this into the thousands and re-render all of them every frame.
+const PARTICLE_MAX_LIVE = 220
 
 const PARTICLE_COLORS = ['#39ff14', '#a78bfa', '#facc15', '#60a5fa', '#f472b6']
 const DUST_COLORS = ['#cbd5e1', '#94a3b8', '#e2e8f0']
@@ -231,17 +239,23 @@ const RAILGUN_DAMAGE = 34
 // per shot bounds the worst-case synchronous cost of one click so a
 // packed page can't turn a single shot into a visible stutter.
 const RAILGUN_MAX_HITS = 18
-// A one-shot wide cone blast rather than true press-and-hold sustained
-// fire -- every other weapon in this game is a single click/tap, and
-// adding separate mousedown/mouseup (plus mobile hold-button) state just
-// for this one weapon would be new input-handling surface area right
-// after a long session spent debugging timing issues elsewhere. Several
-// real flame sprites animate along the cone in one shot instead, so it
-// still reads as "a stream of fire," just resolved instantly like
-// everything else.
+// The one weapon with real press-and-hold continuous fire (see
+// flamethrowerHeldRef and the tick-loop check that keeps calling fireAt
+// every FLAMETHROWER_COOLDOWN while the mouse stays down) -- a single
+// tap still reads as a quick puff, holding reads as an actual sustained
+// stream, same as a real flamethrower. Every other weapon stays a plain
+// single click/tap.
 const FLAMETHROWER_RANGE = 230
 const FLAMETHROWER_HALF_ANGLE = 0.38 // radians, ~22 degrees each side
-const FLAMETHROWER_COOLDOWN = 550
+const FLAMETHROWER_COOLDOWN = 90
+// Same reasoning as RAILGUN_MAX_HITS -- a cone over content-dense
+// section can match dozens of elements, and each one does real
+// synchronous work (shatter, crack lines, hole reveal, scorch). Now
+// that this fires every FLAMETHROWER_COOLDOWN while held (not just
+// once per click), an uncapped cone would let one sustained hold over
+// a packed page spend that cost repeatedly, ~11x/sec, instead of once.
+// Capped lower than the railgun's 18 since it re-fires far more often.
+const FLAMETHROWER_MAX_HITS = 14
 type Weapon = 'pistol' | 'shotgun' | 'laser' | 'rocket' | 'drone' | 'railgun' | 'flamethrower'
 type Character = 'stickman' | 'hooded' | 'ranger'
 type BgStyle = 'image' | 'random' | 'void' | 'brand' | 'grid' | 'static'
@@ -278,6 +292,45 @@ const BG_STYLE_KEYS = Object.keys(BG_STYLES) as Exclude<BgStyle, 'random' | 'ima
 // gradient -- a weapon-specific one is picked per hit for the actual burn
 // mark, layered over whichever background pattern got revealed.
 const SCORCH_IMAGES = ['/games/fx/scorch_01.png', '/games/fx/scorch_02.png', '/games/fx/scorch_03.png']
+
+// Original monochrome vector icons (fill="currentColor", so they pick up
+// the hotbar button's own text color automatically) for the weapon slots
+// that used to just be an emoji -- pistol/shotgun/laser/rocket. Simple
+// geometric silhouettes rather than detailed art, which reads cleanly at
+// 16px and stays crisp at any scale (no raster asset needed).
+type WeaponIconKey = 'pistol' | 'shotgun' | 'laser' | 'rocket'
+const WEAPON_ICON_SVG: Record<WeaponIconKey, React.ReactElement> = {
+  pistol: (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+      <rect x="2" y="7" width="9" height="3" rx="0.5" />
+      <rect x="9" y="4.5" width="3" height="3" rx="0.5" />
+      <rect x="3" y="10" width="2.4" height="4.5" rx="0.6" transform="rotate(12 3 10)" />
+    </svg>
+  ),
+  shotgun: (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+      <rect x="1" y="6.4" width="12" height="1.6" rx="0.4" />
+      <rect x="1" y="8.4" width="12" height="1.6" rx="0.4" />
+      <rect x="10.5" y="5.6" width="2.6" height="4.8" rx="0.5" />
+      <rect x="4" y="10.5" width="2.2" height="4" rx="0.6" transform="rotate(14 4 10.5)" />
+    </svg>
+  ),
+  laser: (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+      <rect x="2" y="7.2" width="8.5" height="2.2" rx="1.1" />
+      <circle cx="11.5" cy="8.3" r="2.6" opacity="0.9" />
+      <circle cx="11.5" cy="8.3" r="1.2" opacity="0.5" />
+      <rect x="3" y="10" width="2.2" height="4" rx="0.6" transform="rotate(12 3 10)" />
+    </svg>
+  ),
+  rocket: (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+      <path d="M3 9 L10 6 C13 5 14.5 6 14.5 6 C14.5 6 13.5 7.5 12.5 10.5 L7 13 Z" />
+      <circle cx="9.5" cy="8.3" r="1.1" opacity="0.6" />
+      <path d="M3 9 L1 11.5 L4.5 10.5 Z" opacity="0.75" />
+    </svg>
+  )
+}
 
 // Cosmetic-only loadout -- none of this changes mechanics, it's purely
 // "make the character and the destruction look like yours."
@@ -388,7 +441,13 @@ function RangerSprite({
 export default function DestroyModeOverlay({
   onExit,
   mode = 'destroy',
-  onBackgroundUnlocked
+  onBackgroundUnlocked,
+  onOpenCollection,
+  onOpenBackgroundCollection,
+  caughtCount = 0,
+  totalCreatures = 0,
+  unlockedBackgroundCount = 0,
+  totalBackgrounds = 0
 }: {
   onExit: () => void
   // 'hideseek' launches straight into its own dedicated mode -- a separate
@@ -401,6 +460,16 @@ export default function DestroyModeOverlay({
   // its unlocked-backgrounds list in sync without re-fetching -- this
   // component already knows the instant an unlock lands.
   onBackgroundUnlocked?: (backgroundId: string) => void
+  // The creature/background collection buttons used to float on the main
+  // site at all times; moved in here (shown only while actually playing)
+  // to cut homepage clutter. The modals themselves still live in the
+  // parent (it already owns the fetched data), these just open them.
+  onOpenCollection?: () => void
+  onOpenBackgroundCollection?: () => void
+  caughtCount?: number
+  totalCreatures?: number
+  unlockedBackgroundCount?: number
+  totalBackgrounds?: number
 }) {
   const [crosshair, setCrosshair] = useState({ x: -100, y: -100 })
   const [player, setPlayer] = useState({ x: 120, y: 400 })
@@ -425,6 +494,9 @@ export default function DestroyModeOverlay({
   const [revealBg] = useState<BackgroundDef>(() => pickRandomBackground())
   const pageRevealSizeRef = useRef<{ w: number; h: number } | null>(null)
   const bgUnlockedRef = useRef(false)
+  // Lazily built the first time something needs to sample the reveal
+  // image's actual pixel brightness -- see sampleRevealLuminance.
+  const revealImageSampleRef = useRef<{ canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | { failed: true } | null>(null)
   const [bgUnlocked, setBgUnlocked] = useState(false)
   const visitorIdRef = useRef('')
   const [beam, setBeam] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
@@ -530,14 +602,28 @@ export default function DestroyModeOverlay({
   const flyFuelRef = useRef(1)
   const flyFuelDisplayedRef = useRef(1)
   const wingPhaseRef = useRef(0)
-  const grappleRef = useRef<{ startX: number; startY: number; targetX: number; targetY: number; startTime: number; duration: number } | null>(
-    null
-  )
+  const grappleRef = useRef<{
+    startX: number
+    startY: number
+    targetX: number
+    targetY: number
+    startTime: number
+    duration: number
+    // The real destructible element the hook latched onto, if the
+    // crosshair was over one -- null means it grabbed empty page/
+    // background instead, same as the original point-pull behavior.
+    targetEl: HTMLElement | null
+  } | null>(null)
   const grappleCooldownRef = useRef(0)
   const slideRef = useRef<{ startTime: number; dirX: 1 | -1 } | null>(null)
   const slideCooldownRef = useRef(0)
   const railgunCooldownRef = useRef(0)
   const flamethrowerCooldownRef = useRef(0)
+  // True between mousedown and mouseup while the flamethrower is
+  // selected -- the one weapon with real press-and-hold continuous fire
+  // (see the mousedown/mouseup listeners and the tick-loop check below).
+  // Every other weapon stays a plain single click, same as before.
+  const flamethrowerHeldRef = useRef(false)
   const bgStyleRef = useRef<BgStyle>('image')
   const particleThemeRef = useRef<ParticleThemeKey>('rainbow')
   const textColorRef = useRef<TextColorKey>('original')
@@ -970,14 +1056,31 @@ export default function DestroyModeOverlay({
     if (pilotingDroneRef.current || isHideSeekSeekerWaiting() || slideRef.current) return
     if (grappleRef.current || performance.now() <= grappleCooldownRef.current) return
     const { x: px, y: py } = playerRef.current
-    const tx = crosshairRef.current.x
-    const ty = crosshairRef.current.y
+    const cx = crosshairRef.current.x
+    const cy = crosshairRef.current.y
+    // Prefer latching onto whatever real destructible element is under
+    // the crosshair -- pulling toward ITS center rather than the raw
+    // cursor point, so the hook reads as grabbing the thing itself. No
+    // destructible element there (or it's already gone) falls back to
+    // the original plain point-pull, so the ability still works to
+    // traverse empty background.
+    const raw = document.elementFromPoint(cx, cy) as HTMLElement | null
+    const hit = raw?.closest(DESTROYABLE_SELECTOR) as HTMLElement | null
+    const targetEl = hit && !destroyedSetRef.current.has(hit) ? hit : null
+    let tx = cx
+    let ty = cy
+    if (targetEl) {
+      const r = targetEl.getBoundingClientRect()
+      tx = r.left + r.width / 2
+      ty = r.top + r.height / 2
+    }
     const dist = Math.hypot(tx - px, ty - (py - 28))
     grappleRef.current = {
       startX: px,
       startY: py - 28,
       targetX: tx,
       targetY: ty,
+      targetEl,
       startTime: performance.now(),
       duration: Math.min(GRAPPLE_MAX_DURATION, Math.max(GRAPPLE_MIN_DURATION, dist * 1.1))
     }
@@ -1055,30 +1158,36 @@ export default function DestroyModeOverlay({
       if (isHideSeekHider() && k === '5' && !pilotingDroneRef.current) return
       if (k === '1') {
         weaponRef.current = 'pistol'
+        flamethrowerHeldRef.current = false
         setWeapon('pistol')
         return
       }
       if (k === '2') {
         weaponRef.current = 'shotgun'
+        flamethrowerHeldRef.current = false
         setWeapon('shotgun')
         return
       }
       if (k === '3') {
         weaponRef.current = 'laser'
+        flamethrowerHeldRef.current = false
         setWeapon('laser')
         return
       }
       if (k === '4') {
         weaponRef.current = 'rocket'
+        flamethrowerHeldRef.current = false
         setWeapon('rocket')
         return
       }
       if (k === '5') {
+        flamethrowerHeldRef.current = false
         toggleDronePilot()
         return
       }
       if (k === '6') {
         weaponRef.current = 'railgun'
+        flamethrowerHeldRef.current = false
         setWeapon('railgun')
         return
       }
@@ -1183,6 +1292,9 @@ export default function DestroyModeOverlay({
         color: palette[Math.floor(Math.random() * palette.length)]
       })
     }
+    if (particlesRef.current.length > PARTICLE_MAX_LIVE) {
+      particlesRef.current.splice(0, particlesRef.current.length - PARTICLE_MAX_LIVE)
+    }
   }
 
   // Flat, low-spread puff for the character's own feet -- distinct from the
@@ -1201,6 +1313,9 @@ export default function DestroyModeOverlay({
         life: 18 + Math.random() * 10,
         color: DUST_COLORS[Math.floor(Math.random() * DUST_COLORS.length)]
       })
+    }
+    if (particlesRef.current.length > PARTICLE_MAX_LIVE) {
+      particlesRef.current.splice(0, particlesRef.current.length - PARTICLE_MAX_LIVE)
     }
   }
 
@@ -1390,6 +1505,15 @@ export default function DestroyModeOverlay({
   // warm ember glow reads as "burnt" just as well and actually contrasts
   // against every reveal style.
   const SCORCH_COLOR = 'radial-gradient(circle, rgba(255,214,140,0.95) 0%, rgba(249,115,22,0.85) 35%, rgba(154,52,18,0.55) 60%, rgba(154,52,18,0) 80%)'
+  // The dark-char counterpart -- studied the reference site's own
+  // scorch(), which samples the luminance under each hit and picks a
+  // PALE ash mark on dark pixels or a DARK char mark on light ones,
+  // rather than one fixed color for every hit regardless of what's
+  // under it. Flat BG_STYLES patterns are already uniformly dark (see
+  // above), so SCORCH_COLOR alone covers those fine; this only gets
+  // reached for the 'image' reveal mode, where a real photo's
+  // brightness genuinely varies hole to hole.
+  const SCORCH_COLOR_DARK = 'radial-gradient(circle, rgba(20,11,8,0.92) 0%, rgba(38,19,10,0.88) 35%, rgba(54,27,13,0.55) 60%, rgba(54,27,13,0) 80%)'
   // Lightened from a dark grey -- the site's own theme is mostly dark/black
   // (confirmed: the hero section alone is a near-black gradient), so dark
   // smoke had the exact same invisible-on-dark problem as the scorch mark.
@@ -1423,6 +1547,106 @@ export default function DestroyModeOverlay({
   // leaves behind. A second, larger, much dimmer "halo" layer (no mask --
   // a soft radial gradient) lingers after the flicker fades, like heat
   // still radiating from the hole's edge.
+  // A handful of small strobing sparks thrown off a burn -- studied the
+  // reference site's own fire particles (an ember kind whose color flips
+  // between two warm tones on an irregular sine test rather than fading
+  // smoothly) and reimplemented the same flat-tone-strobe *idea* here as
+  // a CSS steps() keyframe (emberFlicker, globals.css) driving background-
+  // color, with drift/fade handled separately as a plain JS-set
+  // transition -- no code or art from their build, just the same trick.
+  const spawnEmbers = (x: number, y: number, count: number, big: boolean) => {
+    for (let i = 0; i < count; i++) {
+      const ember = document.createElement('div')
+      const size = 2.5 + Math.random() * (big ? 3.5 : 2)
+      ember.style.position = 'fixed'
+      ember.style.left = `${x - size / 2}px`
+      ember.style.top = `${y - size / 2}px`
+      ember.style.width = `${size}px`
+      ember.style.height = `${size}px`
+      ember.style.borderRadius = '9999px'
+      ember.style.zIndex = '202'
+      ember.style.pointerEvents = 'none'
+      ember.style.boxShadow = '0 0 4px 1px rgba(251,146,60,0.8)'
+      const dur = 420 + Math.random() * (big ? 500 : 300)
+      ember.style.animation = `emberFlicker ${110 + Math.random() * 90}ms steps(1) ${Math.floor(Math.random() * 4)}`
+      document.body.appendChild(ember)
+      const ang = -Math.PI / 2 + (Math.random() - 0.5) * (big ? 2.4 : 1.6)
+      const dist = (big ? 24 : 14) + Math.random() * (big ? 36 : 22)
+      ember.style.transition = `transform ${dur}ms ease-out, opacity ${dur}ms ease-in`
+      requestAnimationFrame(() => {
+        ember.style.transform = `translate(${(Math.cos(ang) * dist).toFixed(0)}px, ${(Math.sin(ang) * dist).toFixed(0)}px)`
+        ember.style.opacity = '0'
+      })
+      setTimeout(() => ember.remove(), dur + 60)
+    }
+  }
+
+  // A real stream of individually-animated flame particles instead of a
+  // few identical staggered sprite-sheet stamps. Studied the reference
+  // site's own flamethrower (destroy.spritefusion.com via REA): each
+  // tongue of fire is a particle that decelerates hard right after
+  // leaving the muzzle, then gains *increasing upward buoyancy the older
+  // it gets* (hot gas rising), with a late-life sideways wobble that
+  // grows with age, and fades from a white-hot core through yellow/
+  // orange to smoke-grey. Reimplemented here as one CSS transition per
+  // particle (with a per-particle transition-delay standing in for their
+  // continuous per-frame emission) rather than their canvas particle
+  // sim -- same lifecycle, our own DOM/CSS machinery.
+  const spawnFlameStream = (px: number, py: number, aimAngle: number, range: number, halfAngle: number) => {
+    // Tuned down from the original 26 -- that count assumed one burst
+    // per click (550ms cooldown). Now that held-fire re-triggers every
+    // FLAMETHROWER_COOLDOWN (90ms), 26 fresh DOM particles every tick
+    // measurably dropped frame rate (avg frame time ~17ms idle -> ~37ms
+    // under sustained fire, confirmed via rAF sampling). 10/tick at
+    // ~11 ticks/sec is still a higher total particle rate than the old
+    // design (~110/sec vs ~47/sec) while cutting per-tick DOM churn by
+    // more than half.
+    const count = 10
+    for (let i = 0; i < count; i++) {
+      const spread = (Math.random() - 0.5) * 2 * halfAngle
+      const ang = aimAngle + spread
+      // Particles aimed near dead-center of the cone travel further than
+      // ones near its edge, same taper a real nozzle spread would have.
+      const edgeFalloff = Math.pow(1 - Math.abs(spread) / halfAngle, 0.4)
+      const travel = range * (0.3 + Math.random() * 0.7) * edgeFalloff
+      const size = 7 + Math.random() * 11
+      const flame = document.createElement('div')
+      flame.style.position = 'fixed'
+      flame.style.left = `${px - size / 2}px`
+      flame.style.top = `${py - size / 2}px`
+      flame.style.width = `${size}px`
+      flame.style.height = `${size}px`
+      // Irregular blob, not a perfect circle -- four independently
+      // randomized corner radii.
+      flame.style.borderRadius = `${40 + Math.random() * 30}% ${60 + Math.random() * 20}% ${40 + Math.random() * 30}% ${60 + Math.random() * 20}%`
+      flame.style.zIndex = '199'
+      flame.style.pointerEvents = 'none'
+      flame.style.background =
+        'radial-gradient(circle, #fff7d6 0%, #ffcf52 28%, #ff8a1f 55%, #c23f0a 80%, rgba(120,20,10,0) 100%)'
+      document.body.appendChild(flame)
+
+      const dur = 300 + Math.random() * 260
+      const riseLift = 16 + Math.random() * 28
+      const wobble = (Math.random() - 0.5) * 70
+      // Per-particle transition-delay stands in for them not all being
+      // emitted on the exact same frame -- one DOM write still reads as
+      // a continuous gout of fire instead of a single static stamp.
+      const settleDelay = Math.random() * 70
+      flame.style.transition = `transform ${dur}ms cubic-bezier(0.15,0.75,0.3,1) ${settleDelay}ms, opacity ${dur}ms ease-in ${settleDelay}ms, background ${(dur * 0.8).toFixed(0)}ms ease-in ${settleDelay}ms`
+      requestAnimationFrame(() => {
+        flame.style.transform = `translate(${(Math.cos(ang) * travel + wobble).toFixed(0)}px, ${(Math.sin(ang) * travel - riseLift).toFixed(0)}px) scale(${(0.35 + Math.random() * 0.5).toFixed(2)})`
+        // Cools to smoke as it dies, same beat as the reference site's
+        // fire particles leaving a trailing wisp behind when they expire.
+        flame.style.background = 'radial-gradient(circle, rgba(170,170,170,0.5) 0%, rgba(110,110,110,0.3) 55%, rgba(110,110,110,0) 85%)'
+        flame.style.opacity = '0'
+      })
+      setTimeout(() => flame.remove(), dur + settleDelay + 80)
+    }
+    // Bright flash at the nozzle itself -- stands in for the reference
+    // site's dynamic point-light at the muzzle.
+    spawnEmbers(px + Math.cos(aimAngle) * 24, py + Math.sin(aimAngle) * 24, 3, true)
+  }
+
   const spawnBurnThrough = (parent: HTMLElement, x: number, y: number, holeSize: number, big: boolean) => {
     const profile = BURN_PROFILE[weaponRef.current]
     const flickerSize = holeSize * (0.9 + profile.flicker * 0.35) * (big ? 1.15 : 1)
@@ -1471,6 +1695,8 @@ export default function DestroyModeOverlay({
       })
     })
     setTimeout(() => halo.remove(), profile.haloMs + 80)
+
+    spawnEmbers(x, y, big ? 7 : 4, big)
   }
 
   // Leaves an actual "shot through" hole where the element used to be --
@@ -1480,6 +1706,98 @@ export default function DestroyModeOverlay({
   // doesn't end up uniform. Positioned relative to the document (not the
   // viewport) so it stays put under the element it replaced even after
   // the page scrolls.
+  // Small bits that tear off AS a hole burns through -- each one samples
+  // the real hidden-image content at its own nearby point (same
+  // background-position crop trick as the hole itself) so the confetti
+  // actually looks like it came from what was just revealed, not a
+  // random color. Falls back to a flat color sample for the non-image
+  // BG_STYLES modes. Modeled on the reference site's paper-hole impact
+  // (color-sampled bits flung outward as the hole carves), reimplemented
+  // from scratch for our DOM/CSS system -- no code or art copied.
+  const spawnPaperConfetti = (cx: number, cy: number, count: number, big: boolean) => {
+    const size = pageRevealSizeRef.current ?? { w: window.innerWidth, h: document.documentElement.scrollHeight }
+    const isImageMode = bgStyleRef.current === 'image'
+    for (let i = 0; i < count; i++) {
+      const bit = document.createElement('div')
+      const bitSize = 3 + Math.random() * (big ? 5 : 3)
+      const sampleX = cx + (Math.random() - 0.5) * (big ? 40 : 22)
+      const sampleY = cy + (Math.random() - 0.5) * (big ? 40 : 22)
+      bit.style.position = 'fixed'
+      bit.style.left = `${sampleX - bitSize / 2}px`
+      bit.style.top = `${sampleY - bitSize / 2}px`
+      bit.style.width = `${bitSize}px`
+      bit.style.height = `${bitSize}px`
+      bit.style.zIndex = '151'
+      bit.style.pointerEvents = 'none'
+      if (isImageMode) {
+        bit.style.backgroundImage = `url(${revealBg.src})`
+        bit.style.backgroundSize = `${size.w}px ${size.h}px`
+        bit.style.backgroundPosition = `-${(sampleX + window.scrollX).toFixed(0)}px -${(sampleY + window.scrollY).toFixed(0)}px`
+      } else {
+        const styleKey = BG_STYLE_KEYS[Math.floor(Math.random() * BG_STYLE_KEYS.length)]
+        bit.style.background = BG_STYLES[styleKey].css
+      }
+      document.body.appendChild(bit)
+      const ang = Math.random() * Math.PI * 2
+      const dist = (big ? 30 : 16) + Math.random() * (big ? 50 : 30)
+      const dur = 380 + Math.random() * 280
+      const rot = (Math.random() - 0.5) * 360
+      bit.style.transition = `transform ${dur}ms cubic-bezier(0.2,0.7,0.3,1), opacity ${dur}ms ease-in`
+      requestAnimationFrame(() => {
+        bit.style.transform = `translate(${(Math.cos(ang) * dist).toFixed(0)}px, ${(Math.sin(ang) * dist + 14).toFixed(0)}px) rotate(${rot.toFixed(0)}deg)`
+        bit.style.opacity = '0'
+      })
+      setTimeout(() => bit.remove(), dur + 80)
+    }
+  }
+
+  // Average luminance (0-1) of the reveal image under a hole's own
+  // crop region, for picking SCORCH_COLOR vs SCORCH_COLOR_DARK. Builds
+  // and caches an offscreen canvas of the image on first use; returns
+  // null (caller falls back to the default) if the image hasn't
+  // finished loading yet or sampling isn't possible -- a real failure
+  // (no 2D context, a security exception) is cached so it isn't retried
+  // every single hit, but "not loaded yet" isn't, since that resolves
+  // itself within the session's first few shots.
+  const sampleRevealLuminance = (left: number, top: number, w: number, h: number): number | null => {
+    if (bgStyleRef.current !== 'image') return null
+    let cached = revealImageSampleRef.current
+    if (!cached) {
+      const img = new Image()
+      img.src = revealBg.src
+      if (!img.complete || img.naturalWidth === 0) return null
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth
+        canvas.height = img.naturalHeight
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          revealImageSampleRef.current = { failed: true }
+          return null
+        }
+        ctx.drawImage(img, 0, 0)
+        cached = { canvas, ctx }
+        revealImageSampleRef.current = cached
+      } catch {
+        revealImageSampleRef.current = { failed: true }
+        return null
+      }
+    }
+    if ('failed' in cached) return null
+    const size = pageRevealSizeRef.current ?? { w: window.innerWidth, h: document.documentElement.scrollHeight }
+    const scaleX = cached.canvas.width / size.w
+    const scaleY = cached.canvas.height / size.h
+    const sx = Math.max(0, Math.min(cached.canvas.width - 1, Math.round((left + w / 2) * scaleX)))
+    const sy = Math.max(0, Math.min(cached.canvas.height - 1, Math.round((top + h / 2) * scaleY)))
+    try {
+      const { data } = cached.ctx.getImageData(sx, sy, 1, 1)
+      return (data[0] * 0.3 + data[1] * 0.59 + data[2] * 0.11) / 255
+    } catch {
+      revealImageSampleRef.current = { failed: true }
+      return null
+    }
+  }
+
   const revealHole = (rect: DOMRect, big: boolean) => {
     const w = Math.max(rect.width, 6)
     const h = Math.max(rect.height, 6)
@@ -1512,18 +1830,82 @@ export default function DestroyModeOverlay({
     hole.style.clipPath = jaggedClipPath()
     hole.style.pointerEvents = 'none'
     hole.style.overflow = 'hidden'
+    // Grows in from a small point instead of popping into existence at
+    // full size, so the hole reads as actually burning/tearing open over
+    // ~260ms rather than appearing instantly.
+    hole.style.transformOrigin = 'center'
+    hole.style.transform = 'scale(0.12)'
+    hole.style.transition = 'transform 260ms cubic-bezier(0.15,0.8,0.3,1)'
     document.body.appendChild(hole)
+    requestAnimationFrame(() => {
+      hole.style.transform = 'scale(1)'
+    })
 
     spawnBurnThrough(document.body, rect.left + w / 2, rect.top + h / 2, Math.max(w, h), big)
+    spawnPaperConfetti(rect.left + w / 2, rect.top + h / 2, big ? 9 : 5, big)
+    setTimeout(() => spawnPaperConfetti(rect.left + w / 2, rect.top + h / 2, big ? 5 : 3, big), 110)
 
     holesRef.current.push({ left, top, width: w, height: h })
 
     const scorchSize = Math.max(w, h) * (big ? 1.6 : 1.2)
-    spawnMaskedFx(hole, w / 2, h / 2, scorchSize, SCORCH_IMAGES[Math.floor(Math.random() * SCORCH_IMAGES.length)], SCORCH_COLOR, 0, {
+    const luminance = sampleRevealLuminance(left, top, w, h)
+    const scorchColor = luminance !== null && luminance > 0.55 ? SCORCH_COLOR_DARK : SCORCH_COLOR
+    spawnMaskedFx(hole, w / 2, h / 2, scorchSize, SCORCH_IMAGES[Math.floor(Math.random() * SCORCH_IMAGES.length)], scorchColor, 0, {
       rotate: true,
       opacity: big ? 0.95 : 0.85,
       persist: true
     })
+  }
+
+  // Shooting empty page background (nothing destroyable there) used to be
+  // a pure miss with just a spark -- but the whole page is meant to read
+  // as "paper" you can burn through anywhere, not just on the handful of
+  // real elements. Small, temporary (fades after a few seconds, doesn't
+  // persist like a real element's hole) and throttled so rapid-fire
+  // weapons can't flood the page with DOM nodes.
+  const lastAmbientBurnRef = useRef(0)
+  const burnAmbientPaper = (x: number, y: number, big: boolean) => {
+    const now = performance.now()
+    if (now - lastAmbientBurnRef.current < 70) return
+    lastAmbientBurnRef.current = now
+    const size = big ? 34 : 22
+    const left = x - size / 2 + window.scrollX
+    const top = y - size / 2 + window.scrollY
+    const hole = document.createElement('div')
+    hole.style.position = 'absolute'
+    hole.style.left = `${left}px`
+    hole.style.top = `${top}px`
+    hole.style.width = `${size}px`
+    hole.style.height = `${size}px`
+    hole.style.zIndex = '40'
+    if (bgStyleRef.current === 'image') {
+      const pageSize = pageRevealSizeRef.current ?? { w: window.innerWidth, h: document.documentElement.scrollHeight }
+      hole.style.backgroundImage = `url(${revealBg.src})`
+      hole.style.backgroundSize = `${pageSize.w}px ${pageSize.h}px`
+      hole.style.backgroundPosition = `-${left}px -${top}px`
+      hole.style.backgroundRepeat = 'no-repeat'
+    } else {
+      const styleKey =
+        bgStyleRef.current === 'random' ? BG_STYLE_KEYS[Math.floor(Math.random() * BG_STYLE_KEYS.length)] : bgStyleRef.current
+      hole.style.background = BG_STYLES[styleKey].css
+    }
+    hole.style.clipPath = jaggedClipPath()
+    hole.style.pointerEvents = 'none'
+    hole.style.overflow = 'hidden'
+    hole.style.transformOrigin = 'center'
+    hole.style.transform = 'scale(0.12)'
+    hole.style.transition = 'transform 220ms cubic-bezier(0.15,0.8,0.3,1), opacity 600ms ease-in 2200ms'
+    document.body.appendChild(hole)
+    requestAnimationFrame(() => {
+      hole.style.transform = 'scale(1)'
+    })
+    setTimeout(() => {
+      hole.style.opacity = '0'
+    }, 2300)
+    setTimeout(() => hole.remove(), 2950)
+
+    spawnBurnThrough(document.body, x, y, size, big)
+    spawnPaperConfetti(x, y, big ? 5 : 3, big)
   }
 
   // Brief flash at the gun when a weapon fires -- real 8-frame animated
@@ -1563,7 +1945,85 @@ export default function DestroyModeOverlay({
   // below). Images get a real per-fragment crop of the source image via
   // a background-position offset (same trick CSS sprite sheets use);
   // anything else gets a flat fill sampled from its own computed color.
+  // Fractal branching crack lines radiating from the impact point --
+  // studied the reference site's own crack() (a random walk with small
+  // per-step turns that occasionally forks into a shorter sub-branch,
+  // stopping once it leaves the target's own bounds, plus a one-pixel
+  // pale highlight drawn behind the dark line for a beveled-groove
+  // look) and reimplemented that same generator here as a short-lived
+  // SVG overlay instead of grid cells, since our destructible surface
+  // is real DOM elements rather than a rasterized canvas.
+  const spawnCrackLines = (rect: DOMRect, originX: number, originY: number, big: boolean) => {
+    type Pt = { x: number; y: number }
+    const branches: Pt[][] = []
+    const walk = (startX: number, startY: number, heading: number, steps: number, depth: number) => {
+      const pts: Pt[] = [{ x: startX, y: startY }]
+      let x = startX
+      let y = startY
+      let h = heading
+      for (let i = 0; i < steps; i++) {
+        h += (Math.random() - 0.5) * 0.7
+        x += Math.cos(h) * (3 + Math.random() * 3)
+        y += Math.sin(h) * (3 + Math.random() * 3)
+        if (x < rect.left - 4 || x > rect.right + 4 || y < rect.top - 4 || y > rect.bottom + 4) break
+        pts.push({ x, y })
+        if (depth < 2 && i > 2 && Math.random() < 0.12) {
+          walk(
+            x,
+            y,
+            h + (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random() * 0.6),
+            Math.max(2, Math.round((steps - i) * 0.6)),
+            depth + 1
+          )
+        }
+      }
+      if (pts.length > 1) branches.push(pts)
+    }
+    const mainBranches = big ? 4 : 2 + Math.floor(Math.random() * 2)
+    for (let i = 0; i < mainBranches; i++) {
+      walk(originX, originY, Math.random() * Math.PI * 2, 6 + Math.floor(Math.random() * 6), 0)
+    }
+    if (!branches.length) return
+
+    const svgNS = 'http://www.w3.org/2000/svg'
+    const svg = document.createElementNS(svgNS, 'svg')
+    svg.setAttribute('width', String(window.innerWidth))
+    svg.setAttribute('height', String(window.innerHeight))
+    svg.style.position = 'fixed'
+    svg.style.left = '0'
+    svg.style.top = '0'
+    svg.style.zIndex = '150'
+    svg.style.pointerEvents = 'none'
+    svg.style.overflow = 'visible'
+    svg.style.transition = 'opacity 260ms ease-in'
+
+    const toPath = (pts: Pt[]) => `M${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L')}`
+    for (const pts of branches) {
+      const d = toPath(pts)
+      const highlight = document.createElementNS(svgNS, 'path')
+      highlight.setAttribute('d', d)
+      highlight.setAttribute('fill', 'none')
+      highlight.setAttribute('stroke', 'rgba(255,255,255,0.18)')
+      highlight.setAttribute('stroke-width', '1.4')
+      highlight.setAttribute('transform', 'translate(1,1)')
+      svg.appendChild(highlight)
+      const main = document.createElementNS(svgNS, 'path')
+      main.setAttribute('d', d)
+      main.setAttribute('fill', 'none')
+      main.setAttribute('stroke', 'rgba(15,8,6,0.55)')
+      main.setAttribute('stroke-width', '1.6')
+      main.setAttribute('stroke-linecap', 'round')
+      svg.appendChild(main)
+    }
+    document.body.appendChild(svg)
+    requestAnimationFrame(() => {
+      svg.style.opacity = '0'
+    })
+    setTimeout(() => svg.remove(), 340)
+  }
+
   const shatterElement = (target: HTMLElement, rect: DOMRect, impactX: number, impactY: number, big: boolean) => {
+    spawnCrackLines(rect, impactX, impactY, big)
     const w = rect.width
     const h = rect.height
     if (w < 4 || h < 4) return
@@ -1769,7 +2229,8 @@ export default function DestroyModeOverlay({
   // nothing there (empty background, no destroyable element in range).
   // Cheap on purpose (a few small square pixels, no sprite animation) so
   // spamming shots at empty space never gets expensive.
-  const spawnMissSpark = (x: number, y: number) => {
+  const spawnMissSpark = (x: number, y: number, big = false) => {
+    burnAmbientPaper(x, y, big)
     for (let i = 0; i < 6; i++) {
       const px = document.createElement('div')
       const size = 3 + Math.floor(Math.random() * 2)
@@ -1968,6 +2429,23 @@ export default function DestroyModeOverlay({
       const now = performance.now()
       const grapple = grappleRef.current
 
+      // Flamethrower continuous fire -- re-triggers the exact same
+      // fireAt an actual click would, every FLAMETHROWER_COOLDOWN while
+      // the mouse stays down. Passing null for rawTarget makes fireAt
+      // fall back to its own elementFromPoint(cx,cy) lookup, same as it
+      // already does for the initial click.
+      if (
+        flamethrowerHeldRef.current &&
+        weaponRef.current === 'flamethrower' &&
+        !pilotingDroneRef.current &&
+        !deadRef.current &&
+        !isHideSeekHider() &&
+        !isHideSeekSeekerWaiting() &&
+        now >= flamethrowerCooldownRef.current
+      ) {
+        fireAt(crosshairRef.current.x, crosshairRef.current.y, null)
+      }
+
       let nx = p.x
       let ny = p.y
       let vy = p.vy
@@ -2029,12 +2507,41 @@ export default function DestroyModeOverlay({
         ny = grapple.startY + (grapple.targetY - grapple.startY) * eased + 28
         vy = 0
         onGround = false
+        setPose('air')
         setGrappleLine({ x: grapple.targetX, y: grapple.targetY })
+
+        // Environment interaction: a real destructible anchor visibly
+        // strains under your weight as you climb it -- an accelerating
+        // shake plus the odd crumb breaking loose -- instead of being a
+        // silent, inert rope target. The anchor itself is what's being
+        // climbed, so it reads the shake/wobble gets worse the closer
+        // you pull it toward you.
+        if (grapple.targetEl && !destroyedSetRef.current.has(grapple.targetEl)) {
+          const strain = t * t * 3.5
+          const jitterX = Math.sin(now / 28 + grapple.startTime) * strain
+          const jitterY = Math.cos(now / 23 + grapple.startTime) * strain * 0.6
+          const tiltDeg = Math.sin(now / 35 + grapple.startTime) * strain * 1.8
+          grapple.targetEl.style.transform = `translate(${jitterX.toFixed(1)}px, ${jitterY.toFixed(1)}px) rotate(${tiltDeg.toFixed(1)}deg)`
+          if (t > 0.3 && Math.random() < 0.25) {
+            const r = grapple.targetEl.getBoundingClientRect()
+            spawnParticles(r.left + Math.random() * r.width, r.top + Math.random() * r.height, 1)
+          }
+        }
+
         if (t >= 1) {
+          const anchor = grapple.targetEl
           grappleRef.current = null
           grappleCooldownRef.current = now + 250
           setGrappleLine(null)
           spawnParticles(grapple.targetX, grapple.targetY, 8)
+          // The payoff: your weight finally breaks whatever you grabbed,
+          // same shatter/hole/reveal pipeline a direct hit uses -- so a
+          // grapple trail across the page leaves a literal trail of
+          // destruction, and "climbing the breaking map" is literal too.
+          if (anchor && !destroyedSetRef.current.has(anchor)) {
+            anchor.style.transform = ''
+            destroyOne(anchor, grapple.targetX, grapple.targetY, false)
+          }
         }
       } else {
         setGrappleLine(null)
@@ -2529,7 +3036,11 @@ export default function DestroyModeOverlay({
       // of fire rather than one static burst.
       flamethrowerCooldownRef.current = now + FLAMETHROWER_COOLDOWN
       const aimAngle = Math.atan2(cy - py, cx - px)
-      let hitCount = 0
+      // Collect-sort-cap, same pattern as the railgun's own hit cap --
+      // nearest things to the nozzle catch fire first, and at most
+      // FLAMETHROWER_MAX_HITS actually burn this tick regardless of how
+      // many the cone geometrically overlaps.
+      const flameCandidates: { el: HTMLElement; x: number; y: number; dist: number }[] = []
       indexElementRef.current.forEach((el) => {
         if (destroyedSetRef.current.has(el) || el.closest('[data-destroy-ui]')) return
         const r = el.getBoundingClientRect()
@@ -2540,10 +3051,15 @@ export default function DestroyModeOverlay({
         let angleDiff = Math.atan2(ey - py, ex - px) - aimAngle
         angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff))
         if (Math.abs(angleDiff) <= FLAMETHROWER_HALF_ANGLE) {
-          destroyOne(el, ex, ey, false)
-          hitCount++
+          flameCandidates.push({ el, x: ex, y: ey, dist })
         }
       })
+      flameCandidates.sort((a, b) => a.dist - b.dist)
+      let hitCount = 0
+      for (const c of flameCandidates.slice(0, FLAMETHROWER_MAX_HITS)) {
+        destroyOne(c.el, c.x, c.y, false)
+        hitCount++
+      }
       if (roomModeRef.current === 'pvp') {
         for (const [id, rp] of Object.entries(remotePlayersRef.current)) {
           if (rp.dead) continue
@@ -2567,16 +3083,15 @@ export default function DestroyModeOverlay({
           }
         }
       }
-      // Several flame sprites staggered along the cone's centerline sell
-      // the "stream" look in one instant shot.
-      for (let i = 1; i <= 5; i++) {
-        const t = i / 5
-        const fx = px + Math.cos(aimAngle) * FLAMETHROWER_RANGE * t
-        const fy = py + Math.sin(aimAngle) * FLAMETHROWER_RANGE * t
-        spawnSpriteAnim(fx, fy, '/games/fx/anim/flamethrower-fire.png', 64, 64, 10, 52 + t * 32, 40)
-      }
+      // A real particle stream across the whole cone, not a few static
+      // staggered clips -- see spawnFlameStream.
+      spawnFlameStream(px, py, aimAngle, FLAMETHROWER_RANGE, FLAMETHROWER_HALF_ANGLE)
       if (hitCount === 0) {
-        spawnMissSpark(px + Math.cos(aimAngle) * 80, py + Math.sin(aimAngle) * 80)
+        // Out near where the stream itself actually reaches (not a fixed
+        // 80px hugging the player) so a miss still visibly scorches
+        // wherever the cone was actually aimed, not somewhere back near
+        // your own feet.
+        spawnMissSpark(px + Math.cos(aimAngle) * FLAMETHROWER_RANGE * 0.8, py + Math.sin(aimAngle) * FLAMETHROWER_RANGE * 0.8)
       } else {
         spawnScreenTear(px + Math.cos(aimAngle) * FLAMETHROWER_RANGE * 0.6, py + Math.sin(aimAngle) * FLAMETHROWER_RANGE * 0.6)
       }
@@ -2649,11 +3164,34 @@ export default function DestroyModeOverlay({
       throwGrenadeAt(e.clientX, e.clientY)
     }
 
+    // Flamethrower-only held-fire state -- engages on left-mousedown
+    // while it's the selected weapon, disengages on mouseup OR if the
+    // window loses focus/the cursor leaves it mid-hold (blur/mouseleave
+    // on the document), so it can never get stuck "on" from a release
+    // that happens outside the window.
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return
+      const target = e.target as HTMLElement
+      if (target.closest('[data-destroy-ui]')) return
+      if (weaponRef.current === 'flamethrower') flamethrowerHeldRef.current = true
+    }
+    const onMouseUp = () => {
+      flamethrowerHeldRef.current = false
+    }
+
     window.addEventListener('click', onClick, { capture: true })
     window.addEventListener('contextmenu', onContextMenu, { capture: true })
+    window.addEventListener('mousedown', onMouseDown, { capture: true })
+    window.addEventListener('mouseup', onMouseUp, { capture: true })
+    window.addEventListener('blur', onMouseUp)
+    document.addEventListener('mouseleave', onMouseUp)
     return () => {
       window.removeEventListener('click', onClick, { capture: true })
       window.removeEventListener('contextmenu', onContextMenu, { capture: true })
+      window.removeEventListener('mousedown', onMouseDown, { capture: true })
+      window.removeEventListener('mouseup', onMouseUp, { capture: true })
+      window.removeEventListener('blur', onMouseUp)
+      document.removeEventListener('mouseleave', onMouseUp)
     }
   }, [])
 
@@ -2663,13 +3201,23 @@ export default function DestroyModeOverlay({
   // shows exact aim.
   const facingLeft = crosshair.x < player.x
   const tiltDeg = Math.max(-16, Math.min(16, (crosshair.y - player.y) / 7))
-  const bobOffset = pose === 'walk' ? Math.sin(walkPhase) * 3 : 0
+  // Bob was ±3px, barely readable as "walking" against a static sprite --
+  // bumped up and paired with a bit of squash/stretch (classic 2D trick
+  // for selling a step without real frame-by-frame animation) so the
+  // pixel sprite characters (hooded/999 Zombie) actually look like
+  // they're moving instead of just quivering in place.
+  const bobOffset = pose === 'walk' ? Math.sin(walkPhase) * 6 : pose === 'air' ? -4 : 0
+  const walkSquash = pose === 'walk' ? 1 + Math.sin(walkPhase * 2) * 0.05 : 1
+  const walkStretch = pose === 'walk' ? 1 - Math.sin(walkPhase * 2) * 0.05 : 1
 
   // Stickman-only: the gun can fully rotate to the cursor since it's clean
   // vector art, and legs get a real swing/crouch/tuck pose per animation
   // state -- neither works well on the pixel sprite, which uses flip/tilt
-  // above instead.
-  const gunAngleDeg = (Math.atan2(crosshair.y - (player.y - 28), crosshair.x - player.x) * 180) / Math.PI
+  // above instead. While grappling, the arm tracks the grapple line
+  // itself rather than wherever the mouse has since drifted to -- reads
+  // as the hand actually gripping the rope through the whole pull.
+  const aimTarget = grappleLine ?? crosshair
+  const gunAngleDeg = (Math.atan2(aimTarget.y - (player.y - 28), aimTarget.x - player.x) * 180) / Math.PI
   const stickSwing = pose === 'walk' ? Math.sin(walkPhase) * 9 : 0
   const stickLegs =
     pose === 'air'
@@ -2791,7 +3339,8 @@ export default function DestroyModeOverlay({
               left: 0,
               top: 0,
               imageRendering: 'pixelated',
-              transform: `scaleX(${facingLeft ? -1 : 1}) rotate(${tiltDeg.toFixed(1)}deg) translateY(${bobOffset.toFixed(1)}px)`,
+              transformOrigin: 'center bottom',
+              transform: `scaleX(${(facingLeft ? -1 : 1) * walkStretch}) scaleY(${walkSquash}) rotate(${tiltDeg.toFixed(1)}deg) translateY(${bobOffset.toFixed(1)}px)`,
               filter: `drop-shadow(0 0 3px ${charStroke}) drop-shadow(0 0 6px ${charStroke})`
             }}
           />
@@ -2821,12 +3370,25 @@ export default function DestroyModeOverlay({
           overflow="visible"
           style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }}
         >
+          {/* Stickman's own body never applies a flip/bob transform (its
+              legs swing via baked-in coordinates and the gun just rotates
+              to any angle), so leaving the wings untransformed happened to
+              look right for it by coincidence. Hooded and Ranger DO flip/
+              bob their own sprite -- the wings need the same transform or
+              they stay put while the body moves/flips under them, reading
+              as detached/broken. Combined into this <g>'s own transform
+              (rather than a separate transform on the <svg> root) because
+              putting a CSS transform directly on an <svg> element breaks
+              the nested transform-box:fill-box origin calculation below
+              (confirmed live -- the wing paths rendered with a 0x0 box). */}
           <g
             style={{
               transformOrigin: '20px 16px',
               transformBox: 'fill-box',
               transition: 'transform 220ms ease, opacity 220ms ease',
-              transform: flying ? 'scale(1)' : 'scale(0)',
+              transform: `scaleX(${character === 'stickman' ? 1 : facingLeft ? -1 : 1}) translateY(${
+                character === 'hooded' ? bobOffset : 0
+              }px) scale(${flying ? 1 : 0})`,
               opacity: flying ? 1 : 0
             }}
           >
@@ -2888,21 +3450,34 @@ export default function DestroyModeOverlay({
         />
       ))}
 
-      {projectiles.map((p) => (
-        <div
-          key={p.id}
-          className="pointer-events-none fixed z-[200] rounded-full"
-          style={{
-            left: p.x - (p.kind === 'pellet' ? 3 : 6),
-            top: p.y - 2,
-            width: p.kind === 'pellet' ? 6 : 12,
-            height: 4,
-            background: p.kind === 'pellet' ? '#fb923c' : '#facc15',
-            boxShadow: `0 0 6px ${p.kind === 'pellet' ? '#fb923c' : '#facc15'}`,
-            transform: `rotate(${p.angle}deg)`
-          }}
-        />
-      ))}
+      {/* Bright glowing head fading to a transparent tail, elongated along
+          the travel direction -- a short streak rather than a flat solid
+          bar, closer to how fast rounds actually read on screen (studied
+          the reference site's own bullet renderer: a capped-length line
+          with a bright core and glowing head, reimplemented here with our
+          own gradient-div approach instead of their canvas/line-drawing
+          code). */}
+      {projectiles.map((p) => {
+        const core = p.kind === 'pellet' ? '#ffb347' : '#fff4c2'
+        const len = p.kind === 'pellet' ? 14 : 22
+        return (
+          <div
+            key={p.id}
+            className="pointer-events-none fixed z-[200]"
+            style={{
+              left: p.x - len / 2,
+              top: p.y - 1.5,
+              width: len,
+              height: 3,
+              borderRadius: '2px',
+              background: `linear-gradient(90deg, rgba(255,255,255,0) 0%, ${core} 55%, #ffffff 100%)`,
+              boxShadow: `0 0 7px 1.5px ${core}, 0 0 2px 1px #ffffff`,
+              transform: `rotate(${p.angle}deg)`,
+              transformOrigin: 'center'
+            }}
+          />
+        )
+      })}
 
       {beam && (
         <svg className="pointer-events-none fixed inset-0 z-[200] h-full w-full">
@@ -2937,15 +3512,73 @@ export default function DestroyModeOverlay({
           )
         })()}
 
-      {grenades.map((g) => (
-        <div
-          key={g.id}
-          className="pointer-events-none fixed z-[200] flex h-5 w-5 items-center justify-center rounded-full text-[11px]"
-          style={{ left: g.x - 10, top: g.y - 10, background: g.kind === 'rocket' ? '#ef4444' : '#f97316' }}
-        >
-          {g.kind === 'rocket' ? '🚀' : '💣'}
-        </div>
-      ))}
+      {/* Drawn shapes instead of emoji -- a dark fragmentation-grenade
+          body with a lit fuse spark on top, and a small flame-trailed
+          rocket capsule. No new art asset needed, and both read clearly
+          at this size even moving fast. */}
+      {grenades.map((g) =>
+        g.kind === 'rocket' ? (
+          <div
+            key={g.id}
+            className="pointer-events-none fixed z-[200]"
+            style={{ left: g.x - 9, top: g.y - 5, width: 18, height: 10 }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                left: -6,
+                top: 2,
+                width: 10,
+                height: 6,
+                borderRadius: '50%',
+                background: 'radial-gradient(circle, #fff4c2 0%, #fb923c 45%, rgba(239,68,68,0) 85%)',
+                filter: 'blur(0.5px)'
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: 18,
+                height: 10,
+                borderRadius: '5px 9px 9px 5px',
+                background: 'linear-gradient(90deg, #7f1d1d 0%, #ef4444 55%, #fca5a5 100%)',
+                boxShadow: '0 0 5px rgba(239,68,68,0.7)'
+              }}
+            />
+          </div>
+        ) : (
+          <div
+            key={g.id}
+            className="pointer-events-none fixed z-[200]"
+            style={{ left: g.x - 7, top: g.y - 7, width: 14, height: 14 }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                borderRadius: '50%',
+                background: 'radial-gradient(circle at 35% 30%, #6b7857 0%, #3f4a30 55%, #1e2416 100%)',
+                boxShadow: '0 0 3px rgba(0,0,0,0.6)'
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                left: '50%',
+                top: -2,
+                width: 3,
+                height: 3,
+                borderRadius: '50%',
+                background: '#fff4c2',
+                boxShadow: '0 0 5px 2px #fb923c',
+                opacity: Math.sin(performance.now() / 55) > 0 ? 1 : 0.3
+              }}
+            />
+          </div>
+        )
+      )}
 
       {droneZap && (
         <svg className="pointer-events-none fixed inset-0 z-[199] h-full w-full">
@@ -3627,14 +4260,14 @@ export default function DestroyModeOverlay({
       >
         {(
           [
-            ['pistol', '1', '🔫', null],
-            ['shotgun', '2', '💥', null],
-            ['laser', '3', '⚡', null],
-            ['rocket', '4', '🚀', null],
+            ['pistol', '1', 'pistol', null],
+            ['shotgun', '2', 'shotgun', null],
+            ['laser', '3', 'laser', null],
+            ['rocket', '4', 'rocket', null],
             ['drone', '5', null, '/games/weapons/drone.png'],
             ['railgun', '6', null, '/games/fx/anim/railgun-beam.png'],
             ['flamethrower', '7', null, '/games/weapons/flamethrower-icon.png']
-          ] as [Weapon, string, string | null, string | null][]
+          ] as [Weapon, string, WeaponIconKey | null, string | null][]
         ).map(([w, num, icon, img]) => {
           const isDroneSlot = w === 'drone'
           const droneActive = isDroneSlot && (pilotingDrone || !!drone)
@@ -3643,9 +4276,11 @@ export default function DestroyModeOverlay({
               key={w}
               onClick={() => {
                 if (isDroneSlot) {
+                  flamethrowerHeldRef.current = false
                   toggleDronePilot()
                   return
                 }
+                flamethrowerHeldRef.current = false
                 weaponRef.current = w
                 setWeapon(w)
               }}
@@ -3661,7 +4296,7 @@ export default function DestroyModeOverlay({
               }`}
             >
               {icon ? (
-                <span>{icon}</span>
+                WEAPON_ICON_SVG[icon]
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={img ?? ''} alt="" width={16} height={16} style={{ imageRendering: 'pixelated' }} />
@@ -3671,6 +4306,26 @@ export default function DestroyModeOverlay({
           )
         })}
         <div className="mx-1 h-7 w-px bg-white/15" />
+        {onOpenCollection && (
+          <button
+            onClick={onOpenCollection}
+            title="View your caught creatures"
+            className="flex h-10 flex-col items-center justify-center rounded-lg border border-white/15 px-1.5 text-[9px] text-white/70"
+          >
+            <span className="text-sm leading-none">📖</span>
+            {caughtCount}/{totalCreatures}
+          </button>
+        )}
+        {onOpenBackgroundCollection && (
+          <button
+            onClick={onOpenBackgroundCollection}
+            title="View your unlocked backgrounds"
+            className="flex h-10 flex-col items-center justify-center rounded-lg border border-white/15 px-1.5 text-[9px] text-white/70"
+          >
+            <span className="text-sm leading-none">🖼️</span>
+            {unlockedBackgroundCount}/{totalBackgrounds}
+          </button>
+        )}
         <button
           onClick={() => setHelpOpen((v) => !v)}
           title="Controls"

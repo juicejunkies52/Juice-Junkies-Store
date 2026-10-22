@@ -913,15 +913,6 @@ export default function EnhancedButterflies({ subtle = false }: { subtle?: boole
         <motion.button
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
-          onClick={() => setBackgroundCollectionOpen(true)}
-          className="rounded-full border border-accent/30 bg-black/80 px-3 py-3 text-xs font-mono text-accent backdrop-blur-md transition-colors hover:border-accent"
-          title="View your unlocked backgrounds"
-        >
-          🖼️ {unlockedBackgrounds.length}/{BACKGROUND_POOL.length}
-        </motion.button>
-        <motion.button
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
           onClick={() => setGamesOpen(true)}
           className="rounded-full border border-accent/30 bg-black/80 px-3 py-3 text-xs font-mono text-accent backdrop-blur-md transition-colors hover:border-accent"
           title="Play mini-games"
@@ -1002,6 +993,9 @@ export default function EnhancedButterflies({ subtle = false }: { subtle?: boole
         <DestroyModeOverlay
           onExit={() => setDestroyModeActive(false)}
           onBackgroundUnlocked={(id) => setUnlockedBackgrounds((prev) => (prev.includes(id) ? prev : [...prev, id]))}
+          onOpenBackgroundCollection={() => setBackgroundCollectionOpen(true)}
+          unlockedBackgroundCount={unlockedBackgrounds.length}
+          totalBackgrounds={BACKGROUND_POOL.length}
         />
       )}
       {hideSeekActive && (
@@ -1009,6 +1003,9 @@ export default function EnhancedButterflies({ subtle = false }: { subtle?: boole
           mode="hideseek"
           onExit={() => setHideSeekActive(false)}
           onBackgroundUnlocked={(id) => setUnlockedBackgrounds((prev) => (prev.includes(id) ? prev : [...prev, id]))}
+          onOpenBackgroundCollection={() => setBackgroundCollectionOpen(true)}
+          unlockedBackgroundCount={unlockedBackgrounds.length}
+          totalBackgrounds={BACKGROUND_POOL.length}
         />
       )}
 

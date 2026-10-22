@@ -144,6 +144,23 @@ body::before {
   }
 }
 
+/* Ember sparks thrown off a burn-through. steps() instead of the default
+   smooth easing makes the background-color hop between flat tones rather
+   than cross-fade -- reads as a guttering flame catching the light,
+   not a gradient animating. Drift/fade (transform/opacity) is driven
+   separately by a plain CSS transition set from JS, so the strobe and
+   the upward float can run on independent timings. */
+@keyframes emberFlicker {
+  0%, 100% { background-color: #fde68a; }
+  12% { background-color: #fb923c; }
+  25% { background-color: #fde68a; }
+  37% { background-color: #f97316; }
+  50% { background-color: #fde68a; }
+  62% { background-color: #fb923c; }
+  75% { background-color: #fde68a; }
+  87% { background-color: #f97316; }
+}
+
 @keyframes borderGlow {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
