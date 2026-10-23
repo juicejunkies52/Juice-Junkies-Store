@@ -169,7 +169,7 @@ export default function AdminProducts() {
     if (!confirm(
       enabling
         ? `Switch ALL ${products.length} products to pre-order mode? Products without a deposit will use $${defaultDeposit ?? '(skipped)'}`
-        : `Switch ALL ${products.length} products back to live (off pre-order)?`
+        : `End the drop and switch ALL ${products.length} products back to live? This will immediately email every customer with a deposit-paid reservation a link to pay their remaining balance.`
     )) return
 
     setBulkToggling(true)
@@ -179,8 +179,15 @@ export default function AdminProducts() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: enabling, defaultDeposit })
       })
-      if (!response.ok) throw new Error('Failed')
+      const data = await response.json()
+      if (!response.ok) throw new Error(data?.error || 'Failed')
       await fetchProducts()
+      if (!enabling) {
+        const { balanceRequestsSent = 0, balanceRequestsFailed = 0 } = data
+        if (balanceRequestsSent || balanceRequestsFailed) {
+          alert(`Balance-due emails sent: ${balanceRequestsSent}${balanceRequestsFailed ? `, failed: ${balanceRequestsFailed} (check order pages for details)` : ''}`)
+        }
+      }
     } catch (error) {
       console.error('Failed to bulk-toggle pre-order mode:', error)
       alert('Failed to update all products')
