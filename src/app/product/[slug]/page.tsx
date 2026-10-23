@@ -88,9 +88,38 @@ export default function ProductPage() {
 
   // Distinct color/size options across all variants -- a dropdown only
   // shows up for whichever dimension actually varies (e.g. the phone case
-  // only varies by size, the tumbler only by color).
+  // only varies by size, the tumbler only by color). Always shows every
+  // option that exists anywhere in the catalog, even ones incompatible
+  // with the current selection in the other dropdown -- narrowing these
+  // live made the other dropdown vanish entirely whenever only one option
+  // remained, trapping the user on a single color/size.
   const colorOptions = Array.from(new Set((product?.variants ?? []).map(v => v.color).filter(Boolean))) as string[]
   const sizeOptions = Array.from(new Set((product?.variants ?? []).map(v => v.size).filter(Boolean))) as string[]
+
+  // Not every color/size combination actually exists as a real variant (a
+  // print-on-demand catalog is rarely a full grid). Picking one that
+  // doesn't exist re-picks the *other* dimension to the nearest real
+  // variant, rather than silently leaving price/stock on the old variant
+  // while the dropdown shows a combo that was never actually selected.
+  const handleColorChange = (newColor: string) => {
+    setSelectedColor(newColor)
+    if (!product) return
+    const stillValid = product.variants.some(v => v.color === newColor && (sizeOptions.length < 2 || v.size === selectedSize))
+    if (!stillValid) {
+      const fallback = product.variants.find(v => v.color === newColor)
+      setSelectedSize(fallback?.size ?? null)
+    }
+  }
+
+  const handleSizeChange = (newSize: string) => {
+    setSelectedSize(newSize)
+    if (!product) return
+    const stillValid = product.variants.some(v => v.size === newSize && (colorOptions.length < 2 || v.color === selectedColor))
+    if (!stillValid) {
+      const fallback = product.variants.find(v => v.size === newSize)
+      setSelectedColor(fallback?.color ?? null)
+    }
+  }
 
   useEffect(() => {
     if (!product) return
@@ -326,7 +355,7 @@ export default function ProductPage() {
                     </label>
                     <select
                       value={selectedColor ?? ''}
-                      onChange={(e) => setSelectedColor(e.target.value)}
+                      onChange={(e) => handleColorChange(e.target.value)}
                       className="w-full px-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:border-accent focus:outline-none transition-colors"
                     >
                       {colorOptions.map((color) => (
@@ -342,7 +371,7 @@ export default function ProductPage() {
                     </label>
                     <select
                       value={selectedSize ?? ''}
-                      onChange={(e) => setSelectedSize(e.target.value)}
+                      onChange={(e) => handleSizeChange(e.target.value)}
                       className="w-full px-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:border-accent focus:outline-none transition-colors"
                     >
                       {sizeOptions.map((size) => (
