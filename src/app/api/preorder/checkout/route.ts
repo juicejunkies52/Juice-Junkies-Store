@@ -30,7 +30,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'This product is not open for pre-order' }, { status: 400 })
     }
 
-    const deposit = product.preOrderDeposit
+    // The admin-set deposit is a floor, not a fixed amount -- a customer can
+    // choose to pay more now to owe less at the balance step. Falls back to
+    // the minimum if nothing (or something invalid) was sent, so the old
+    // {productId}-only request shape still works.
+    const requestedDeposit = typeof body?.depositAmount === 'number' ? body.depositAmount : undefined
+    const deposit = requestedDeposit && requestedDeposit > product.preOrderDeposit
+      ? Math.min(requestedDeposit, product.price)
+      : product.preOrderDeposit
     const balanceDue = Math.max(0, product.price - deposit)
 
     // Attaches to an account when signed in, same as normal checkout;

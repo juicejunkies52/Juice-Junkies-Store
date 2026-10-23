@@ -120,6 +120,15 @@ function PreOrderDepositForm({ orderId }: { orderId: string }) {
 export default function PreOrderPage() {
   const { productId } = useParams()
   const router = useRouter()
+  const [productInfo, setProductInfo] = useState<{
+    name: string
+    price: number
+    minDeposit: number
+    shipEstimate: string | null
+  } | null>(null)
+  const [depositInput, setDepositInput] = useState('')
+  const [starting, setStarting] = useState(false)
+
   const [clientSecret, setClientSecret] = useState('')
   const [orderId, setOrderId] = useState('')
   const [summary, setSummary] = useState<{
@@ -140,30 +149,56 @@ export default function PreOrderPage() {
     initializeStripe()
   }, [])
 
+  // Side-effect-free lookup first -- just reads the minimum deposit and
+  // price so the amount picker renders. No order or PaymentIntent exists
+  // until the customer confirms an amount and clicks Continue below.
   useEffect(() => {
     if (!productId) return
     ;(async () => {
       try {
-        const res = await fetch('/api/preorder/checkout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ productId })
-        })
+        const res = await fetch(`/api/preorder/product/${productId}`)
         const data = await res.json()
         if (!res.ok) {
           setError(data.error || 'This product is not open for pre-order right now.')
           return
         }
-        setClientSecret(data.clientSecret)
-        setOrderId(data.orderId)
-        setSummary({ deposit: data.deposit, balanceDue: data.balanceDue, fullPrice: data.fullPrice, shipEstimate: data.shipEstimate })
+        setProductInfo({ name: data.name, price: data.price, minDeposit: data.minDeposit, shipEstimate: data.shipEstimate })
+        setDepositInput(data.minDeposit.toFixed(2))
       } catch {
-        setError('Something went wrong starting your pre-order. Please try again.')
+        setError('Something went wrong loading this pre-order. Please try again.')
       } finally {
         setLoading(false)
       }
     })()
   }, [productId])
+
+  const startCheckout = async () => {
+    if (!productInfo) return
+    const chosenDeposit = parseFloat(depositInput)
+    if (!Number.isFinite(chosenDeposit) || chosenDeposit < productInfo.minDeposit) return
+
+    setStarting(true)
+    setError('')
+    try {
+      const res = await fetch('/api/preorder/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId, depositAmount: chosenDeposit })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'This product is not open for pre-order right now.')
+        return
+      }
+      setClientSecret(data.clientSecret)
+      setOrderId(data.orderId)
+      setSummary({ deposit: data.deposit, balanceDue: data.balanceDue, fullPrice: data.fullPrice, shipEstimate: data.shipEstimate })
+    } catch {
+      setError('Something went wrong starting your pre-order. Please try again.')
+    } finally {
+      setStarting(false)
+    }
+  }
 
   const appearance = {
     theme: 'night' as const,
@@ -191,7 +226,7 @@ export default function PreOrderPage() {
     )
   }
 
-  if (error || !clientSecret || !summary) {
+  if (error || !productInfo) {
     return (
       <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background">
         <AnimatedBackground />
@@ -205,13 +240,17 @@ export default function PreOrderPage() {
     )
   }
 
+  const chosenDeposit = parseFloat(depositInput)
+  const depositValid = Number.isFinite(chosenDeposit) && chosenDeposit >= productInfo.minDeposit
+  const previewBalance = Math.max(0, productInfo.price - (depositValid ? chosenDeposit : productInfo.minDeposit))
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-background">
       <AnimatedBackground />
       <div className="relative z-40 min-h-screen">
         <header className="mx-auto flex max-w-3xl items-center justify-between p-6">
           <button
-            onClick={() => router.back()}
+            onClick={() => (clientSecret ? setClientSecret('') : router.back())}
             className="flex items-center gap-2 text-white transition-colors hover:text-accent"
           >
             <ArrowLeft className="h-5 w-5" />
@@ -229,29 +268,80 @@ export default function PreOrderPage() {
             <p className="mb-8 text-center text-gray-400">Official launch collection -- pay a small deposit to secure yours</p>
           </motion.div>
 
-          <div className="mb-8 rounded-xl border border-accent/30 bg-accent/5 p-6">
-            <div className="flex items-center justify-between text-sm text-white/80">
-              <span>Deposit due now</span>
-              <span className="text-2xl font-bold text-accent">${summary.deposit.toFixed(2)}</span>
-            </div>
-            <div className="mt-2 flex items-center justify-between text-xs text-white/50">
-              <span>Remaining balance (paid later, before it ships)</span>
-              <span>${summary.balanceDue.toFixed(2)}</span>
-            </div>
-            {summary.shipEstimate && <p className="mt-3 text-xs text-white/40">Estimated: {summary.shipEstimate}</p>}
-          </div>
+          {!clientSecret || !summary ? (
+            <div className="rounded-xl border border-gray-800 bg-black/20 p-8 backdrop-blur-sm">
+              <h2 className="mb-1 text-lg font-semibold text-white">{productInfo.name}</h2>
+              <p className="mb-6 text-sm text-gray-400">Full price: ${productInfo.price.toFixed(2)}</p>
 
-          <div className="rounded-xl border border-gray-800 bg-black/20 p-8 backdrop-blur-sm">
-            {stripePromise && clientSecret ? (
-              <Elements stripe={stripePromise} options={{ clientSecret, appearance }}>
-                <PreOrderDepositForm orderId={orderId} />
-              </Elements>
-            ) : (
-              <div className="py-8 text-center">
-                <p className="text-white">Initializing payment system...</p>
+              <label className="mb-2 block text-sm font-semibold text-white">Deposit to pay now</label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                <input
+                  type="number"
+                  step="0.5"
+                  min={productInfo.minDeposit}
+                  value={depositInput}
+                  onChange={(e) => setDepositInput(e.target.value)}
+                  className="w-full rounded-lg border border-gray-700 bg-gray-900/50 py-3 pl-8 pr-4 text-white placeholder-gray-400 transition-colors focus:border-accent focus:outline-none"
+                />
               </div>
-            )}
-          </div>
+              <p className="mt-2 text-xs text-gray-500">
+                ${productInfo.minDeposit.toFixed(2)} minimum to reserve. Pay more now to owe less at the balance step -- it's
+                entirely optional.
+              </p>
+              {!depositValid && depositInput !== '' && (
+                <p className="mt-2 text-xs text-red-400">Must be at least ${productInfo.minDeposit.toFixed(2)}.</p>
+              )}
+
+              <div className="mt-4 rounded-lg border border-accent/30 bg-accent/5 p-4">
+                <div className="flex items-center justify-between text-xs text-white/50">
+                  <span>Remaining balance (paid later, before it ships)</span>
+                  <span>${previewBalance.toFixed(2)}</span>
+                </div>
+                {productInfo.shipEstimate && <p className="mt-2 text-xs text-white/40">Estimated: {productInfo.shipEstimate}</p>}
+              </div>
+
+              <motion.button
+                onClick={startCheckout}
+                disabled={!depositValid || starting}
+                className={`mt-6 flex w-full items-center justify-center gap-3 rounded-lg py-4 text-lg font-semibold transition-all duration-300 ${
+                  !depositValid || starting
+                    ? 'cursor-not-allowed bg-gray-600 text-gray-400'
+                    : 'bg-gradient-to-r from-accent to-yellow-400 text-black hover:shadow-lg'
+                }`}
+                whileHover={depositValid && !starting ? { scale: 1.02 } : {}}
+                whileTap={depositValid && !starting ? { scale: 0.98 } : {}}
+              >
+                {starting ? 'Starting...' : `Continue -- $${Number.isFinite(chosenDeposit) ? chosenDeposit.toFixed(2) : productInfo.minDeposit.toFixed(2)}`}
+              </motion.button>
+            </div>
+          ) : (
+            <>
+              <div className="mb-8 rounded-xl border border-accent/30 bg-accent/5 p-6">
+                <div className="flex items-center justify-between text-sm text-white/80">
+                  <span>Deposit due now</span>
+                  <span className="text-2xl font-bold text-accent">${summary.deposit.toFixed(2)}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between text-xs text-white/50">
+                  <span>Remaining balance (paid later, before it ships)</span>
+                  <span>${summary.balanceDue.toFixed(2)}</span>
+                </div>
+                {summary.shipEstimate && <p className="mt-3 text-xs text-white/40">Estimated: {summary.shipEstimate}</p>}
+              </div>
+
+              <div className="rounded-xl border border-gray-800 bg-black/20 p-8 backdrop-blur-sm">
+                {stripePromise && clientSecret ? (
+                  <Elements stripe={stripePromise} options={{ clientSecret, appearance }}>
+                    <PreOrderDepositForm orderId={orderId} />
+                  </Elements>
+                ) : (
+                  <div className="py-8 text-center">
+                    <p className="text-white">Initializing payment system...</p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

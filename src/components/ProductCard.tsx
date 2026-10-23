@@ -178,7 +178,7 @@ export default function ProductCard({ product, index = 0, viewMode = 'grid' }: P
               whileTap={{ scale: 0.98 }}
             >
               <ShoppingCart className="w-4 h-4" />
-              Pre-Order -- ${product.preOrderDeposit!.toFixed(2)}
+              Pre-Order -- From ${product.preOrderDeposit!.toFixed(2)}
             </motion.div>
           </Link>
         ) : (

@@ -299,9 +299,9 @@ export default function ProductPage() {
                 <div className="mb-6 rounded-lg border border-accent/40 bg-accent/10 p-4">
                   <p className="font-bold text-accent">🔥 Official Launch Collection -- Pre-Order Available</p>
                   <p className="mt-1 text-sm text-white/80">
-                    Secure yours now for just <strong>${product.preOrderDeposit.toFixed(2)}</strong> -- pay the remaining $
-                    {(displayPrice - product.preOrderDeposit).toFixed(2)} when it's ready to ship
-                    {product.preOrderShipEstimate ? ` (${product.preOrderShipEstimate})` : ''}. We'll email you when it's time.
+                    Secure yours now for as little as <strong>${product.preOrderDeposit.toFixed(2)}</strong> -- pay the rest
+                    when it's ready to ship{product.preOrderShipEstimate ? ` (${product.preOrderShipEstimate})` : ''}. Want to
+                    pay more now to owe less later? You can choose your deposit on the next page. We'll email you when it's time.
                   </p>
                 </div>
               )}
@@ -401,7 +401,7 @@ export default function ProductPage() {
                     whileTap={{ scale: 0.98 }}
                   >
                     <ShoppingCart className="w-5 h-5" />
-                    Pre-Order Now -- ${product.preOrderDeposit.toFixed(2)} to Reserve
+                    Pre-Order Now -- From ${product.preOrderDeposit.toFixed(2)} to Reserve
                   </motion.div>
                 </Link>
               ) : (
