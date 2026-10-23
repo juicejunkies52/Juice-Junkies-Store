@@ -16,6 +16,8 @@ interface Product {
   images: string[]
   tags: string[]
   inventoryQty: number
+  preOrderMode?: boolean
+  preOrderDeposit?: number | null
   category?: {
     name: string
     slug: string
@@ -37,6 +39,7 @@ export default function ProductCard({ product, index = 0, viewMode = 'grid' }: P
 
   const isLowStock = product.inventoryQty <= 10
   const isOutOfStock = product.inventoryQty === 0
+  const isPreOrder = Boolean(product.preOrderMode && product.preOrderDeposit)
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault() // Prevent navigation if clicking on the card
@@ -79,6 +82,16 @@ export default function ProductCard({ product, index = 0, viewMode = 'grid' }: P
 
         {/* Badges */}
         <div className="absolute top-3 left-3 z-20 flex flex-col gap-2">
+          {isPreOrder && (
+            <motion.span
+              className="px-2 py-1 bg-gradient-to-r from-accent to-yellow-400 text-black text-xs font-bold rounded"
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: 0.2 }}
+            >
+              🔥 Pre-Order
+            </motion.span>
+          )}
           {discount > 0 && (
             <motion.span
               className="px-2 py-1 bg-red-500 text-white text-xs font-bold rounded"
@@ -156,21 +169,34 @@ export default function ProductCard({ product, index = 0, viewMode = 'grid' }: P
           )}
         </div>
 
-        {/* Add to Cart Button */}
-        <motion.button
-          onClick={handleAddToCart}
-          className={`w-full py-3 rounded-lg font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
-            isOutOfStock
-              ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-              : 'bg-gradient-to-r from-purple-600 to-green-400 hover:from-purple-500 hover:to-green-300 text-white hover:shadow-lg'
-          }`}
-          whileHover={!isOutOfStock ? { scale: 1.02 } : {}}
-          whileTap={!isOutOfStock ? { scale: 0.98 } : {}}
-          disabled={isOutOfStock}
-        >
-          <ShoppingCart className="w-4 h-4" />
-          {isOutOfStock ? 'Sold Out' : 'Add to Cart'}
-        </motion.button>
+        {/* Add to Cart / Pre-Order Button */}
+        {isPreOrder ? (
+          <Link href={`/preorder/${product.id}`} onClick={(e) => e.stopPropagation()}>
+            <motion.div
+              className="w-full py-3 rounded-lg font-semibold transition-all duration-300 flex items-center justify-center gap-2 bg-gradient-to-r from-accent to-yellow-400 text-black hover:shadow-lg"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <ShoppingCart className="w-4 h-4" />
+              Pre-Order -- ${product.preOrderDeposit!.toFixed(2)}
+            </motion.div>
+          </Link>
+        ) : (
+          <motion.button
+            onClick={handleAddToCart}
+            className={`w-full py-3 rounded-lg font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
+              isOutOfStock
+                ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                : 'bg-gradient-to-r from-purple-600 to-green-400 hover:from-purple-500 hover:to-green-300 text-white hover:shadow-lg'
+            }`}
+            whileHover={!isOutOfStock ? { scale: 1.02 } : {}}
+            whileTap={!isOutOfStock ? { scale: 0.98 } : {}}
+            disabled={isOutOfStock}
+          >
+            <ShoppingCart className="w-4 h-4" />
+            {isOutOfStock ? 'Sold Out' : 'Add to Cart'}
+          </motion.button>
+        )}
 
         {/* Stock indicator */}
         {!isOutOfStock && isLowStock && (

@@ -46,6 +46,7 @@ export default function AdminProducts() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [showAddModal, setShowAddModal] = useState(false)
+  const [bulkToggling, setBulkToggling] = useState(false)
 
   useEffect(() => {
     fetchProducts()
@@ -147,6 +148,44 @@ export default function AdminProducts() {
       })
     } catch (error) {
       console.error('Failed to update pre-order ship estimate:', error)
+    }
+  }
+
+  const allPreOrder = products.length > 0 && products.every(p => p.preOrderMode)
+
+  const handleBulkPreOrder = async () => {
+    const enabling = !allPreOrder
+    let defaultDeposit: number | undefined
+
+    if (enabling) {
+      const input = window.prompt(
+        'Default deposit ($) to apply to any product that doesn\'t already have one set (leave blank to skip):',
+        '5'
+      )
+      if (input === null) return
+      if (input.trim()) defaultDeposit = parseFloat(input) || undefined
+    }
+
+    if (!confirm(
+      enabling
+        ? `Switch ALL ${products.length} products to pre-order mode? Products without a deposit will use $${defaultDeposit ?? '(skipped)'}`
+        : `Switch ALL ${products.length} products back to live (off pre-order)?`
+    )) return
+
+    setBulkToggling(true)
+    try {
+      const response = await fetch('/api/admin/products/bulk-preorder', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: enabling, defaultDeposit })
+      })
+      if (!response.ok) throw new Error('Failed')
+      await fetchProducts()
+    } catch (error) {
+      console.error('Failed to bulk-toggle pre-order mode:', error)
+      alert('Failed to update all products')
+    } finally {
+      setBulkToggling(false)
     }
   }
 
@@ -359,15 +398,32 @@ export default function AdminProducts() {
               <h1 className="text-3xl font-bold text-white">Product Management</h1>
               <p className="text-gray-400 mt-1">Manage your store inventory and products</p>
             </div>
-            <motion.button
-              onClick={() => setShowAddModal(true)}
-              className="bg-gradient-to-r from-purple-600 to-green-400 hover:from-purple-500 hover:to-green-300 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 transition-all duration-300"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <Plus className="w-5 h-5" />
-              Add Product
-            </motion.button>
+            <div className="flex items-center gap-3">
+              <motion.button
+                onClick={handleBulkPreOrder}
+                disabled={bulkToggling || products.length === 0}
+                title={allPreOrder ? 'Switch every product back to live' : 'Switch every product into pre-order mode'}
+                className={`px-6 py-3 rounded-lg font-semibold flex items-center gap-2 transition-all duration-300 disabled:opacity-50 ${
+                  allPreOrder
+                    ? 'bg-accent text-black'
+                    : 'bg-black/40 border border-accent/40 text-accent hover:bg-black/60'
+                }`}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <Clock className="w-5 h-5" />
+                {bulkToggling ? 'Updating...' : allPreOrder ? 'End Pre-Order (All)' : 'Launch Pre-Order (All)'}
+              </motion.button>
+              <motion.button
+                onClick={() => setShowAddModal(true)}
+                className="bg-gradient-to-r from-purple-600 to-green-400 hover:from-purple-500 hover:to-green-300 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 transition-all duration-300"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <Plus className="w-5 h-5" />
+                Add Product
+              </motion.button>
+            </div>
           </div>
         </div>
       </motion.header>

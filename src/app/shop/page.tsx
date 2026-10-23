@@ -14,6 +14,8 @@ interface Product {
   images: string[]
   tags: string[]
   inventoryQty: number
+  preOrderMode?: boolean
+  preOrderDeposit?: number | null
   category?: {
     name: string
     slug: string
