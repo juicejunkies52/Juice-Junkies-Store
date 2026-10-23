@@ -35,31 +35,39 @@ model Category {
 }
 
 model Product {
-  id              String      @id @default(cuid())
-  name            String
-  slug            String      @unique
-  description     String?
-  price           Float
-  compareAtPrice  Float?
-  images          String
-  inventoryQty    Int         @default(0)
-  sku             String?     @unique
-  tags            String
-  status          String      @default("active")
-  categoryId      String?
-  fulfillmentType String      @default("manual")
-  printfulId      String?
-  printfulExtId   String?
-  designFiles     String      @default("[]")
-  mockupImages    String      @default("[]")
-  customImages    Boolean     @default(false)
-  featured        Boolean     @default(false)
-  featuredOrder   Int         @default(0)
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  orderItems      OrderItem[]
-  category        Category?   @relation(fields: [categoryId], references: [id])
-  variants        Variant[]
+  id                   String      @id @default(cuid())
+  name                 String
+  slug                 String      @unique
+  description          String?
+  price                Float
+  compareAtPrice       Float?
+  images               String
+  inventoryQty         Int         @default(0)
+  sku                  String?     @unique
+  tags                 String
+  status               String      @default("active")
+  categoryId           String?
+  fulfillmentType      String      @default("manual")
+  printfulId           String?
+  printfulExtId        String?
+  designFiles          String      @default("[]")
+  mockupImages         String      @default("[]")
+  customImages         Boolean     @default(false)
+  featured             Boolean     @default(false)
+  featuredOrder        Int         @default(0)
+  // Pre-order drops: a small deposit reserves the item now; admin later
+  // triggers a balance-due email once it's ready to ship (see Order's
+  // isPreOrder/balanceDue fields and /api/preorder/*). preOrderDeposit is
+  // nullable so flipping preOrderMode on without setting an amount yet is
+  // inert rather than defaulting to some arbitrary number.
+  preOrderMode         Boolean     @default(false)
+  preOrderDeposit      Float?
+  preOrderShipEstimate String?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  orderItems           OrderItem[]
+  category             Category?   @relation(fields: [categoryId], references: [id])
+  variants             Variant[]
 }
 
 model Variant {
@@ -80,25 +88,44 @@ model Variant {
 }
 
 model Order {
-  id                    String      @id @default(cuid())
-  userId                String?
-  status                String      @default("pending")
-  totalAmount           Float
-  shippingAddress       String
-  billingAddress        String
-  stripePaymentIntentId String?
-  fulfillmentStatus     String      @default("unfulfilled")
-  shippingMethod        String      @default("standard")
-  shippingAmount        Float       @default(0)
-  printfulOrderId       String?
-  trackingNumber        String?
-  trackingUrl           String?
-  shippedAt             DateTime?
-  estimatedDelivery     DateTime?
-  createdAt             DateTime    @default(now())
-  updatedAt             DateTime    @updatedAt
-  user                  User?       @relation(fields: [userId], references: [id])
-  items                 OrderItem[]
+  id                     String      @id @default(cuid())
+  userId                 String?
+  // 'pending' -> 'paid' for a normal order. Pre-orders add a step in
+  // between: 'pending' -> 'deposit_paid' (reserved, nothing shipped yet)
+  // -> 'paid' (balance collected -- from here on identical to a normal
+  // paid order, same fulfillment pipeline below).
+  status                 String      @default("pending")
+  totalAmount            Float
+  shippingAddress        String
+  billingAddress         String
+  stripePaymentIntentId  String?
+  fulfillmentStatus      String      @default("unfulfilled")
+  shippingMethod         String      @default("standard")
+  shippingAmount         Float       @default(0)
+  printfulOrderId        String?
+  trackingNumber         String?
+  trackingUrl            String?
+  shippedAt              DateTime?
+  estimatedDelivery      DateTime?
+  // Pre-order tracking -- see Product.preOrderMode. depositAmount/balanceDue
+  // are snapshotted at order-creation time (not re-read from the product),
+  // so a later change to the product's deposit setting never retroactively
+  // changes what an existing reservation owes.
+  isPreOrder             Boolean     @default(false)
+  depositAmount          Float?
+  balanceDue             Float?
+  balanceRequestedAt     DateTime?
+  balancePaymentIntentId String?
+  // Normal orders get the customer's email from paymentIntent.receipt_email
+  // at confirm time and never need to store it separately. A pre-order
+  // deposit needs it persisted, though -- the balance-due email has to go
+  // out weeks later, long after that PaymentIntent is gone from working
+  // memory. Left null for normal orders; only pre-orders populate this.
+  customerEmail          String?
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+  user                   User?       @relation(fields: [userId], references: [id])
+  items                  OrderItem[]
 }
 
 model OrderItem {
@@ -324,12 +351,12 @@ model NeonSketch {
 // hold the global #1 spot and attach a message, same gating as every other
 // persistent feature this session (collection, decorations, sketch).
 model FlutterScore {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  name        String
-  score       Int
-  message     String?
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  name      String
+  score     Int
+  message   String?
+  updatedAt DateTime @updatedAt
 }
 
 // One row per account's personal best wave reached in 999 Last Stand.

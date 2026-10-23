@@ -10,10 +10,20 @@ export async function PATCH(
   try {
     const { id } = await params
     const body = await request.json()
-    const data: { featured?: boolean; featuredOrder?: number } = {}
+    const data: {
+      featured?: boolean
+      featuredOrder?: number
+      preOrderMode?: boolean
+      preOrderDeposit?: number | null
+      preOrderShipEstimate?: string | null
+    } = {}
 
     if (typeof body.featured === 'boolean') data.featured = body.featured
     if (typeof body.featuredOrder === 'number') data.featuredOrder = body.featuredOrder
+    if (typeof body.preOrderMode === 'boolean') data.preOrderMode = body.preOrderMode
+    if (body.preOrderDeposit === null || typeof body.preOrderDeposit === 'number') data.preOrderDeposit = body.preOrderDeposit
+    if (body.preOrderShipEstimate === null || typeof body.preOrderShipEstimate === 'string')
+      data.preOrderShipEstimate = body.preOrderShipEstimate
 
     const product = await prisma.product.update({ where: { id }, data })
     return NextResponse.json({ success: true, product })

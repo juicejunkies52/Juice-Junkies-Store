@@ -12,7 +12,8 @@ import {
   Search,
   Filter,
   MoreVertical,
-  Star
+  Star,
+  Clock
 } from 'lucide-react'
 import AddProductModal from '../../../components/admin/AddProductModal'
 
@@ -29,6 +30,9 @@ interface Product {
   status: string
   featured: boolean
   featuredOrder: number
+  preOrderMode: boolean
+  preOrderDeposit: number | null
+  preOrderShipEstimate: string | null
   category?: {
     name: string
   }
@@ -104,6 +108,48 @@ export default function AdminProducts() {
     }
   }
 
+  const handleTogglePreOrder = async (product: Product) => {
+    const next = !product.preOrderMode
+    setProducts(prev => prev.map(p => p.id === product.id ? { ...p, preOrderMode: next } : p))
+    try {
+      const response = await fetch(`/api/admin/products/${product.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preOrderMode: next })
+      })
+      if (!response.ok) throw new Error('Failed')
+    } catch (error) {
+      console.error('Failed to update pre-order mode:', error)
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, preOrderMode: !next } : p))
+    }
+  }
+
+  const handlePreOrderDepositChange = async (product: Product, deposit: number | null) => {
+    setProducts(prev => prev.map(p => p.id === product.id ? { ...p, preOrderDeposit: deposit } : p))
+    try {
+      await fetch(`/api/admin/products/${product.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preOrderDeposit: deposit })
+      })
+    } catch (error) {
+      console.error('Failed to update pre-order deposit:', error)
+    }
+  }
+
+  const handlePreOrderShipEstimateChange = async (product: Product, estimate: string) => {
+    setProducts(prev => prev.map(p => p.id === product.id ? { ...p, preOrderShipEstimate: estimate } : p))
+    try {
+      await fetch(`/api/admin/products/${product.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preOrderShipEstimate: estimate || null })
+      })
+    } catch (error) {
+      console.error('Failed to update pre-order ship estimate:', error)
+    }
+  }
+
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          product.sku?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -164,6 +210,15 @@ export default function AdminProducts() {
           >
             <Star className="w-4 h-4" fill={product.featured ? 'currentColor' : 'none'} />
           </button>
+          <button
+            onClick={() => handleTogglePreOrder(product)}
+            title={product.preOrderMode ? 'Turn off pre-order mode' : 'Put this product in pre-order mode'}
+            className={`p-1.5 rounded-lg transition-colors ${
+              product.preOrderMode ? 'bg-accent text-black' : 'bg-black/80 hover:bg-black/90 text-white'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+          </button>
           <button className="bg-black/80 hover:bg-black/90 text-white p-1.5 rounded-lg transition-colors">
             <Eye className="w-4 h-4" />
           </button>
@@ -189,6 +244,35 @@ export default function AdminProducts() {
             onChange={(e) => handleFeaturedOrderChange(product, parseInt(e.target.value) || 0)}
             className="w-16 bg-gray-900/50 border border-gray-700 rounded px-2 py-1 text-white focus:border-accent focus:outline-none"
           />
+        </div>
+      )}
+
+      {product.preOrderMode && (
+        <div className="mb-3 flex flex-col gap-2 rounded-lg border border-accent/30 bg-accent/5 p-2 text-sm">
+          <div className="flex items-center gap-2 text-accent">
+            <Clock className="w-3.5 h-3.5" />
+            <span>Pre-order deposit $</span>
+            <input
+              type="number"
+              step="0.5"
+              min="0.5"
+              value={product.preOrderDeposit ?? ''}
+              placeholder="5.00"
+              onChange={(e) => handlePreOrderDepositChange(product, e.target.value ? parseFloat(e.target.value) : null)}
+              className="w-20 bg-gray-900/50 border border-gray-700 rounded px-2 py-1 text-white focus:border-accent focus:outline-none"
+            />
+            <span className="text-white/40">of {formatPrice(product.price)}</span>
+          </div>
+          <input
+            type="text"
+            value={product.preOrderShipEstimate ?? ''}
+            placeholder="Ships in 4-6 weeks"
+            onChange={(e) => handlePreOrderShipEstimateChange(product, e.target.value)}
+            className="w-full bg-gray-900/50 border border-gray-700 rounded px-2 py-1 text-white text-xs focus:border-accent focus:outline-none"
+          />
+          {!product.preOrderDeposit && (
+            <span className="text-xs text-yellow-500">Set a deposit amount -- pre-order is on but not live to customers without one.</span>
+          )}
         </div>
       )}
 

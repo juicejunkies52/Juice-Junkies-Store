@@ -31,6 +31,11 @@ interface OrderDetails {
   trackingUrl?: string
   shippedAt?: string
   estimatedDelivery?: string
+  isPreOrder: boolean
+  depositAmount: number | null
+  balanceDue: number | null
+  balanceRequestedAt: string | null
+  customerEmail: string | null
   items: {
     id: string
     quantity: number
@@ -58,6 +63,8 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
   const [order, setOrder] = useState<OrderDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [fulfillLoading, setFulfillLoading] = useState(false)
+  const [balanceRequestLoading, setBalanceRequestLoading] = useState(false)
+  const [balanceRequestMessage, setBalanceRequestMessage] = useState('')
 
   const [resolvedParams, setResolvedParams] = useState<{ id: string } | null>(null)
 
@@ -107,12 +114,41 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
     }
   }
 
+  const sendBalanceRequest = async () => {
+    if (!order) return
+
+    setBalanceRequestLoading(true)
+    setBalanceRequestMessage('')
+    try {
+      const response = await fetch('/api/admin/preorder/send-balance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: order.id })
+      })
+      const result = await response.json()
+
+      if (response.ok) {
+        setOrder({ ...order, balanceRequestedAt: new Date().toISOString() })
+        setBalanceRequestMessage(result.emailSent ? 'Balance-due email sent.' : 'Payment link created, but the email did not send -- check RESEND_API_KEY.')
+      } else {
+        setBalanceRequestMessage(result.error || 'Failed to send balance request')
+      }
+    } catch (error) {
+      console.error('Error sending balance request:', error)
+      setBalanceRequestMessage('Failed to send balance request')
+    } finally {
+      setBalanceRequestLoading(false)
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending':
         return 'text-yellow-400 bg-yellow-400/20'
       case 'paid':
         return 'text-green-400 bg-green-400/20'
+      case 'deposit_paid':
+        return 'text-accent bg-accent/20'
       case 'cancelled':
         return 'text-red-400 bg-red-400/20'
       default:
@@ -291,6 +327,51 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
                 </div>
               </div>
             </motion.div>
+
+            {/* Pre-order reservation */}
+            {order.isPreOrder && (
+              <motion.div
+                className="bg-black/30 backdrop-blur-sm rounded-xl border border-accent/30 p-6"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <h2 className="mb-4 text-xl font-bold text-white">Pre-Order Reservation</h2>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div className="text-gray-400">Deposit paid</div>
+                    <div className="font-medium text-white">${order.depositAmount?.toFixed(2) ?? '--'}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-400">Balance due</div>
+                    <div className="font-medium text-white">${order.balanceDue?.toFixed(2) ?? '--'}</div>
+                  </div>
+                </div>
+                {order.status === 'deposit_paid' && (
+                  <div className="mt-4 border-t border-gray-700 pt-4">
+                    {order.balanceRequestedAt ? (
+                      <p className="text-sm text-gray-400">
+                        Balance request sent {new Date(order.balanceRequestedAt).toLocaleDateString()}. Resend if the
+                        customer lost the email.
+                      </p>
+                    ) : (
+                      <p className="text-sm text-gray-400">
+                        Deposit is in -- send the balance-due email once this is actually ready to ship.
+                      </p>
+                    )}
+                    <button
+                      onClick={sendBalanceRequest}
+                      disabled={balanceRequestLoading || !order.customerEmail}
+                      className="mt-3 flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-black transition-colors hover:bg-accent/80 disabled:opacity-50"
+                    >
+                      <Zap className={`h-4 w-4 ${balanceRequestLoading ? 'animate-spin' : ''}`} />
+                      {order.balanceRequestedAt ? 'Resend Balance-Due Email' : 'Send Balance-Due Email'}
+                    </button>
+                    {!order.customerEmail && <p className="mt-2 text-xs text-yellow-500">No email on file for this reservation.</p>}
+                    {balanceRequestMessage && <p className="mt-2 text-xs text-gray-400">{balanceRequestMessage}</p>}
+                  </div>
+                )}
+              </motion.div>
+            )}
 
             {/* Tracking Info */}
             {(order.trackingNumber || order.printfulOrderId) && (

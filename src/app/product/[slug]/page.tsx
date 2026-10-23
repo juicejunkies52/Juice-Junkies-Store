@@ -40,6 +40,9 @@ interface Product {
   inventoryQty: number
   status: string
   fulfillmentType: string
+  preOrderMode: boolean
+  preOrderDeposit: number | null
+  preOrderShipEstimate: string | null
   variants: Variant[]
   category?: {
     name: string
@@ -278,7 +281,7 @@ export default function ProductPage() {
               </div>
 
               {/* Price */}
-              <div className="flex items-center gap-4 mb-6">
+              <div className="flex items-center gap-4 mb-2">
                 <span className="text-4xl font-bold text-white">
                   ${displayPrice.toFixed(2)}
                 </span>
@@ -288,6 +291,20 @@ export default function ProductPage() {
                   </span>
                 )}
               </div>
+
+              {/* Pre-order hype badge -- only shows once a deposit amount is
+                  actually set (see admin toggle), so flipping preOrderMode
+                  on alone never half-breaks the buy flow for customers. */}
+              {product.preOrderMode && product.preOrderDeposit && (
+                <div className="mb-6 rounded-lg border border-accent/40 bg-accent/10 p-4">
+                  <p className="font-bold text-accent">🔥 Official Launch Collection -- Pre-Order Available</p>
+                  <p className="mt-1 text-sm text-white/80">
+                    Secure yours now for just <strong>${product.preOrderDeposit.toFixed(2)}</strong> -- pay the remaining $
+                    {(displayPrice - product.preOrderDeposit).toFixed(2)} when it's ready to ship
+                    {product.preOrderShipEstimate ? ` (${product.preOrderShipEstimate})` : ''}. We'll email you when it's time.
+                  </p>
+                </div>
+              )}
 
               {/* Description */}
               {product.description && (
@@ -376,20 +393,33 @@ export default function ProductPage() {
 
             {/* Action Buttons */}
             <div className="space-y-4">
-              <motion.button
-                onClick={handleAddToCart}
-                className={`w-full py-4 rounded-lg font-semibold transition-all duration-300 flex items-center justify-center gap-3 ${
-                  isOutOfStock
-                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-purple-600 to-green-400 hover:from-purple-500 hover:to-green-300 text-white hover:shadow-lg'
-                }`}
-                whileHover={!isOutOfStock ? { scale: 1.02 } : {}}
-                whileTap={!isOutOfStock ? { scale: 0.98 } : {}}
-                disabled={!!isOutOfStock}
-              >
-                <ShoppingCart className="w-5 h-5" />
-                {isOutOfStock ? 'Sold Out' : 'Add to Cart'}
-              </motion.button>
+              {product.preOrderMode && product.preOrderDeposit ? (
+                <Link href={`/preorder/${product.id}`} className="block">
+                  <motion.div
+                    className="flex w-full items-center justify-center gap-3 rounded-lg bg-gradient-to-r from-accent to-yellow-400 py-4 font-semibold text-black transition-all duration-300 hover:shadow-lg"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <ShoppingCart className="w-5 h-5" />
+                    Pre-Order Now -- ${product.preOrderDeposit.toFixed(2)} to Reserve
+                  </motion.div>
+                </Link>
+              ) : (
+                <motion.button
+                  onClick={handleAddToCart}
+                  className={`w-full py-4 rounded-lg font-semibold transition-all duration-300 flex items-center justify-center gap-3 ${
+                    isOutOfStock
+                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-purple-600 to-green-400 hover:from-purple-500 hover:to-green-300 text-white hover:shadow-lg'
+                  }`}
+                  whileHover={!isOutOfStock ? { scale: 1.02 } : {}}
+                  whileTap={!isOutOfStock ? { scale: 0.98 } : {}}
+                  disabled={!!isOutOfStock}
+                >
+                  <ShoppingCart className="w-5 h-5" />
+                  {isOutOfStock ? 'Sold Out' : 'Add to Cart'}
+                </motion.button>
+              )}
 
               <button className="w-full py-3 border border-gray-600 hover:border-gray-500 text-gray-300 hover:text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2">
                 <Heart className="w-4 h-4" />

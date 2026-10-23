@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { headers } from 'next/headers'
-import { stripe } from '../../../../../lib/stripe'
+import { stripe, formatAmountFromStripe } from '../../../../../lib/stripe'
 import { prisma } from '../../../../../lib/prisma'
 import { fulfillPrintfulOrder } from '../../../../../lib/fulfillOrder'
-import { sendOrderConfirmationEmail, sendAdminOrderNotificationEmail } from '../../../../../lib/email'
+import { sendOrderConfirmationEmail, sendAdminOrderNotificationEmail, sendPreOrderReservedEmail } from '../../../../../lib/email'
 import Stripe from 'stripe'
 
 // This is your Stripe CLI webhook secret for testing your endpoint locally
@@ -30,6 +30,38 @@ export async function POST(request: NextRequest) {
       console.log('💰 Payment succeeded:', paymentIntentSucceeded.id)
 
       try {
+        const orderType = paymentIntentSucceeded.metadata?.orderType
+
+        // Donations carry no orderId at all (nothing to fulfill, nothing
+        // to ship) -- without this branch they'd fall through to
+        // handleSuccessfulPayment below, which throws on a missing
+        // orderId and makes Stripe retry a webhook that was never going
+        // to succeed.
+        if (paymentIntentSucceeded.metadata?.type === 'donation') {
+          console.log('💚 Donation received:', paymentIntentSucceeded.id, formatAmountFromStripe(paymentIntentSucceeded.amount))
+          break
+        }
+
+        // Pre-order deposit/balance payments are a different flow from a
+        // normal merch order -- same webhook event, different handling --
+        // so branch BEFORE any normal-order side effect (confirmation
+        // email, Printful fulfillment) ever runs. A deposit must NEVER
+        // trigger real fulfillment of the full item; a balance payment
+        // explicitly runs the normal post-payment steps itself, exactly
+        // once, reusing the same proven functions the default path below
+        // uses (the order is, by that point, functionally a normal paid
+        // order -- same fulfillment pipeline from here on).
+        if (orderType === 'preorder_deposit') {
+          await handlePreOrderDepositPaid(paymentIntentSucceeded)
+          break
+        }
+        if (orderType === 'preorder_balance') {
+          await handlePreOrderBalancePaid(paymentIntentSucceeded)
+          await sendOrderConfirmation(paymentIntentSucceeded)
+          await fulfillOrder(paymentIntentSucceeded)
+          break
+        }
+
         // Save order to database
         await handleSuccessfulPayment(paymentIntentSucceeded)
 
@@ -93,6 +125,86 @@ function extractShippingAddress(paymentIntent: Stripe.PaymentIntent) {
     country: shipping?.address?.country || 'US',
     email: paymentIntent.receipt_email || undefined
   }
+}
+
+// Marks the reservation paid and emails the customer that they're locked
+// in -- deliberately does NOT touch fulfillmentStatus, printfulOrderId or
+// call fulfillOrder. Nothing ships off a deposit; that only happens once
+// handlePreOrderBalancePaid runs, later, for the remaining amount.
+async function handlePreOrderDepositPaid(paymentIntent: Stripe.PaymentIntent) {
+  const orderId = paymentIntent.metadata?.orderId
+  if (!orderId) {
+    throw new Error(`preorder_deposit payment with no orderId in metadata: ${paymentIntent.id}`)
+  }
+
+  const order = await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      status: 'deposit_paid',
+      stripePaymentIntentId: paymentIntent.id,
+      // Persisted here specifically because the balance-due email has to
+      // go out weeks later -- long after this PaymentIntent (and its own
+      // receipt_email) is gone from anywhere else.
+      customerEmail: paymentIntent.receipt_email || undefined
+    },
+    include: { items: { include: { product: true } } }
+  })
+
+  console.log('✅ Pre-order deposit paid, reserved:', orderId)
+
+  const firstItem = order.items[0]
+  const result = await sendPreOrderReservedEmail({
+    orderId: order.id,
+    customerEmail: paymentIntent.receipt_email || '',
+    productName: firstItem?.product.name || 'your item',
+    depositAmount: order.depositAmount || 0,
+    balanceDue: order.balanceDue || 0,
+    shipEstimate: firstItem?.product.preOrderShipEstimate || undefined
+  })
+  if (result.sent) {
+    console.log('📧 Pre-order reservation email sent to:', paymentIntent.receipt_email)
+  } else {
+    console.log('📧 Pre-order reservation email not sent:', result.reason)
+  }
+
+  const admin = await prisma.admin.findFirst({ select: { email: true } })
+  if (admin?.email && firstItem) {
+    // Reuses the existing admin notification template, labeled clearly so
+    // it isn't mistaken for a full sale ready to ship.
+    const adminResult = await sendAdminOrderNotificationEmail({
+      adminEmail: admin.email,
+      orderId: order.id,
+      customerEmail: paymentIntent.receipt_email || '',
+      items: [{ name: `[PRE-ORDER DEPOSIT] ${firstItem.product.name}`, quantity: firstItem.quantity, price: firstItem.price }],
+      totalAmount: order.depositAmount || 0
+    })
+    if (adminResult.sent) {
+      console.log('📧 Admin pre-order notification sent to:', admin.email)
+    }
+  }
+}
+
+// The remaining-balance payment -- from here the order is functionally a
+// normal paid order (shipping address collected now, same as a normal
+// checkout), so this intentionally stops short of sending the
+// confirmation email or fulfilling: the caller does both explicitly,
+// reusing the exact same functions the default (non-pre-order) path uses.
+async function handlePreOrderBalancePaid(paymentIntent: Stripe.PaymentIntent) {
+  const orderId = paymentIntent.metadata?.orderId
+  if (!orderId) {
+    throw new Error(`preorder_balance payment with no orderId in metadata: ${paymentIntent.id}`)
+  }
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      status: 'paid',
+      balancePaymentIntentId: paymentIntent.id,
+      shippingAddress: JSON.stringify(extractShippingAddress(paymentIntent))
+    }
+  })
+
+  console.log('✅ Pre-order balance paid, order complete:', orderId)
 }
 
 async function handleSuccessfulPayment(paymentIntent: Stripe.PaymentIntent) {

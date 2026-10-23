@@ -70,6 +70,101 @@ export async function sendOrderConfirmationEmail(data: OrderConfirmationData): P
   }
 }
 
+interface PreOrderReservedData {
+  orderId: string
+  customerEmail: string
+  productName: string
+  depositAmount: number
+  balanceDue: number
+  shipEstimate?: string
+}
+
+// Sent the instant a pre-order deposit clears -- deliberately distinct
+// from sendOrderConfirmationEmail (this is a RESERVATION, not a completed
+// sale; nothing has shipped, and the customer still owes the balance).
+export async function sendPreOrderReservedEmail(data: PreOrderReservedData): Promise<SendResult> {
+  if (!resend) {
+    return { sent: false, reason: 'RESEND_API_KEY not configured' }
+  }
+  if (!data.customerEmail) {
+    return { sent: false, reason: 'Order has no customer email' }
+  }
+
+  const html = `
+    <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; color: #111;">
+      <h1 style="font-size: 20px;">You're in! ${data.productName} is reserved.</h1>
+      <p>Your deposit of <strong>$${data.depositAmount.toFixed(2)}</strong> secured your spot for the official launch
+      collection drop <strong>#${data.orderId.slice(-8).toUpperCase()}</strong>.</p>
+      <p>Remaining balance: <strong>$${data.balanceDue.toFixed(2)}</strong> -- we'll email you a payment link for that
+      once it's ready to ship${data.shipEstimate ? ` (${data.shipEstimate})` : ''}. Nothing more to do right now.</p>
+      <p style="color: #999; font-size: 12px; margin-top: 32px;">999 Forever &mdash; Juice Junkies</p>
+    </div>
+  `
+
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'Juice Junkies <orders@juicejunkies.shop>',
+      to: data.customerEmail,
+      subject: `You're reserved - ${data.productName}`,
+      html
+    })
+    if (error) {
+      return { sent: false, reason: error.message }
+    }
+    return { sent: true }
+  } catch (error) {
+    return { sent: false, reason: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+
+interface PreOrderBalanceDueData {
+  orderId: string
+  customerEmail: string
+  productName: string
+  balanceAmount: number
+  payUrl: string
+}
+
+// Admin-triggered once a reservation is ready to ship -- the payUrl
+// carries a signed token (lib/preorderToken.ts) good for 180 days, no
+// login required to use it.
+export async function sendPreOrderBalanceDueEmail(data: PreOrderBalanceDueData): Promise<SendResult> {
+  if (!resend) {
+    return { sent: false, reason: 'RESEND_API_KEY not configured' }
+  }
+  if (!data.customerEmail) {
+    return { sent: false, reason: 'Order has no customer email' }
+  }
+
+  const html = `
+    <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; color: #111;">
+      <h1 style="font-size: 20px;">${data.productName} is almost ready!</h1>
+      <p>Your pre-order <strong>#${data.orderId.slice(-8).toUpperCase()}</strong> is ready to ship. Pay the remaining
+      balance below to lock in your spot in line.</p>
+      <p style="font-size: 24px; font-weight: bold; margin: 24px 0;">$${data.balanceAmount.toFixed(2)}</p>
+      <a href="${data.payUrl}" style="display:inline-block; background:#39ff14; color:#000; padding:14px 28px; border-radius:8px; font-weight:bold; text-decoration:none;">
+        Pay Remaining Balance
+      </a>
+      <p style="color: #999; font-size: 12px; margin-top: 32px;">999 Forever &mdash; Juice Junkies</p>
+    </div>
+  `
+
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'Juice Junkies <orders@juicejunkies.shop>',
+      to: data.customerEmail,
+      subject: `Your pre-order is ready - pay the balance for ${data.productName}`,
+      html
+    })
+    if (error) {
+      return { sent: false, reason: error.message }
+    }
+    return { sent: true }
+  } catch (error) {
+    return { sent: false, reason: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+
 interface AdminOrderNotificationData {
   adminEmail: string
   orderId: string

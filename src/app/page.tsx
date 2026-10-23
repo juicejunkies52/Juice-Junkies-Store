@@ -16,6 +16,7 @@ import EnhancedButterflies from '@/components/EnhancedButterflies'
 import LyricOverlay from '@/components/LyricOverlay'
 import LimitedDropBanner from '@/components/LimitedDropBanner'
 import CommunitySection from '@/components/CommunitySection'
+import DonationButton from '@/components/DonationButton'
 
 export default function Home() {
   const [email, setEmail] = useState('')
@@ -79,6 +80,7 @@ export default function Home() {
 
       {/* Audio Player */}
       <AudioPlayer />
+      <DonationButton />
 
       {/* Navigation Header */}
       <nav className="relative z-50 flex items-center justify-between p-6 max-w-7xl mx-auto">

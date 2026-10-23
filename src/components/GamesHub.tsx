@@ -68,6 +68,10 @@ export default function GamesHub({
           🎮 Games
         </h2>
         <p className="mt-2 text-sm text-white/70">More little games coming soon -- pick one to play.</p>
+        <p className="mx-auto mt-3 max-w-sm text-xs text-white/40">
+          These are all works in progress, built solo as a side project on top of the actual store -- bear with us on bugs, we're
+          actively fixing things as they turn up.
+        </p>
 
         <div className="mt-8 flex flex-col gap-4">
           <button
