@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus,
   Edit3,
@@ -13,7 +13,8 @@ import {
   Filter,
   MoreVertical,
   Star,
-  Clock
+  Clock,
+  X
 } from 'lucide-react'
 import AddProductModal from '../../../components/admin/AddProductModal'
 
@@ -47,6 +48,12 @@ export default function AdminProducts() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [showAddModal, setShowAddModal] = useState(false)
   const [bulkToggling, setBulkToggling] = useState(false)
+  // Was window.prompt()/confirm() -- too easy to miss or dismiss by
+  // accident, which read as the whole feature silently not working.
+  // An in-page modal is visible and can't be mistaken for "nothing happened."
+  const [bulkModalMode, setBulkModalMode] = useState<'enable' | 'disable' | null>(null)
+  const [bulkDepositInput, setBulkDepositInput] = useState('5')
+  const [bulkResult, setBulkResult] = useState<{ sent: number; failed: number } | null>(null)
 
   useEffect(() => {
     fetchProducts()
@@ -153,24 +160,17 @@ export default function AdminProducts() {
 
   const allPreOrder = products.length > 0 && products.every(p => p.preOrderMode)
 
-  const handleBulkPreOrder = async () => {
-    const enabling = !allPreOrder
-    let defaultDeposit: number | undefined
+  const openBulkModal = () => {
+    setBulkResult(null)
+    setBulkDepositInput('5')
+    setBulkModalMode(allPreOrder ? 'disable' : 'enable')
+  }
 
-    if (enabling) {
-      const input = window.prompt(
-        'Default deposit ($) to apply to any product that doesn\'t already have one set (leave blank to skip):',
-        '5'
-      )
-      if (input === null) return
-      if (input.trim()) defaultDeposit = parseFloat(input) || undefined
-    }
-
-    if (!confirm(
-      enabling
-        ? `Switch ALL ${products.length} products to pre-order mode? Products without a deposit will use $${defaultDeposit ?? '(skipped)'}`
-        : `End the drop and switch ALL ${products.length} products back to live? This will immediately email every customer with a deposit-paid reservation a link to pay their remaining balance.`
-    )) return
+  const confirmBulkPreOrder = async () => {
+    const enabling = bulkModalMode === 'enable'
+    const defaultDeposit = enabling && bulkDepositInput.trim()
+      ? parseFloat(bulkDepositInput) || undefined
+      : undefined
 
     setBulkToggling(true)
     try {
@@ -184,9 +184,9 @@ export default function AdminProducts() {
       await fetchProducts()
       if (!enabling) {
         const { balanceRequestsSent = 0, balanceRequestsFailed = 0 } = data
-        if (balanceRequestsSent || balanceRequestsFailed) {
-          alert(`Balance-due emails sent: ${balanceRequestsSent}${balanceRequestsFailed ? `, failed: ${balanceRequestsFailed} (check order pages for details)` : ''}`)
-        }
+        setBulkResult({ sent: balanceRequestsSent, failed: balanceRequestsFailed })
+      } else {
+        setBulkModalMode(null)
       }
     } catch (error) {
       console.error('Failed to bulk-toggle pre-order mode:', error)
@@ -407,7 +407,7 @@ export default function AdminProducts() {
             </div>
             <div className="flex items-center gap-3">
               <motion.button
-                onClick={handleBulkPreOrder}
+                onClick={openBulkModal}
                 disabled={bulkToggling || products.length === 0}
                 title={allPreOrder ? 'Switch every product back to live' : 'Switch every product into pre-order mode'}
                 className={`px-6 py-3 rounded-lg font-semibold flex items-center gap-2 transition-all duration-300 disabled:opacity-50 ${
@@ -530,6 +530,95 @@ export default function AdminProducts() {
         onClose={() => setShowAddModal(false)}
         onProductAdded={fetchProducts}
       />
+
+      {/* Bulk Pre-Order Modal */}
+      <AnimatePresence>
+        {bulkModalMode && (
+          <motion.div
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => !bulkToggling && setBulkModalMode(null)}
+          >
+            <motion.div
+              className="w-full max-w-sm rounded-xl border border-accent/30 bg-black/90 p-6"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-accent">
+                  <Clock className="w-5 h-5" />
+                  <h2 className="font-bold text-white">
+                    {bulkResult ? 'Drop Ended' : bulkModalMode === 'enable' ? 'Launch Pre-Order (All)' : 'End Pre-Order (All)'}
+                  </h2>
+                </div>
+                <button onClick={() => setBulkModalMode(null)} className="text-white/50 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {bulkResult ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-white/80">
+                    All {products.length} products are back to live.
+                    {bulkResult.sent > 0 && ` Balance-due emails sent: ${bulkResult.sent}.`}
+                    {bulkResult.failed > 0 && ` ${bulkResult.failed} failed -- check those orders individually.`}
+                    {bulkResult.sent === 0 && bulkResult.failed === 0 && ' No outstanding deposits needed a balance request.'}
+                  </p>
+                  <button onClick={() => setBulkModalMode(null)} className="btn-primary w-full">
+                    Done
+                  </button>
+                </div>
+              ) : bulkModalMode === 'enable' ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-white/60">
+                    Switches all {products.length} products to pre-order mode. Anything on the shop and home page
+                    immediately shows a &quot;Pre-Order&quot; button instead of &quot;Add to Cart.&quot;
+                  </p>
+                  <div>
+                    <label className="mb-1 block text-sm text-white/80">
+                      Default deposit ($) for any product that doesn&apos;t already have one set
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={bulkDepositInput}
+                      onChange={(e) => setBulkDepositInput(e.target.value)}
+                      placeholder="5.00"
+                      className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white placeholder-white/30 focus:border-accent focus:outline-none"
+                    />
+                    <p className="mt-1 text-xs text-white/40">Leave blank to skip -- products without a deposit set won&apos;t show the Pre-Order button.</p>
+                  </div>
+                  <button
+                    onClick={confirmBulkPreOrder}
+                    disabled={bulkToggling}
+                    className="w-full rounded-lg bg-gradient-to-r from-purple-600 to-green-400 py-3 font-semibold text-white disabled:opacity-50"
+                  >
+                    {bulkToggling ? 'Launching...' : `Launch Pre-Order for All ${products.length} Products`}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <p className="text-sm text-white/80">
+                    This ends the drop and switches all {products.length} products back to live. Every customer
+                    with a deposit-paid reservation gets emailed a link to pay their remaining balance right away.
+                  </p>
+                  <button
+                    onClick={confirmBulkPreOrder}
+                    disabled={bulkToggling}
+                    className="w-full rounded-lg bg-accent py-3 font-semibold text-black disabled:opacity-50"
+                  >
+                    {bulkToggling ? 'Processing...' : 'End Drop & Send Balance Requests'}
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

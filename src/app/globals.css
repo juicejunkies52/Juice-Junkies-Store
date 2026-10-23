@@ -13,6 +13,25 @@
   --gray-700: #3a3a3a;
 }
 
+/* Tailwind v4 only generates bg-accent/text-accent/border-accent (and the
+   primary/gray equivalents) from colors registered here, not from the
+   plain :root custom properties above -- those were being silently
+   ignored, rendering every bg-accent/text-accent usage sitewide as
+   transparent. Referencing the existing :root variables keeps every raw
+   var(--accent) usage (box-shadows, gradients) working unchanged. */
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-dark: var(--primary-dark);
+  --color-accent: var(--accent);
+  --color-accent-yellow: var(--accent-yellow);
+  --color-accent-pink: var(--accent-pink);
+  --color-gray-900: var(--gray-900);
+  --color-gray-800: var(--gray-800);
+  --color-gray-700: var(--gray-700);
+}
+
 /* Enhanced Body with Animated Background */
 body {
   background: var(--background);
