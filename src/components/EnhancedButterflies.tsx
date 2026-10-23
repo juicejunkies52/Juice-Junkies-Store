@@ -142,14 +142,26 @@ interface TrackedBody {
   nextWanderAt: number
 }
 
+const BRIGHTNESS_STORAGE_KEY = 'jj-butterfly-brightness'
+const LAYER_STORAGE_KEY = 'jj-butterfly-layer-behind'
+
 export default function EnhancedButterflies({ subtle = false }: { subtle?: boolean }) {
   // "subtle" only dims how visible the butterflies/999s are (opacity + glow
   // strength) for pages like the shop/home page where they'd otherwise
   // compete with content -- it never touches physics, drag, gravity, or
-  // count, so interaction stays identical everywhere.
-  const butterflyOpacity = subtle ? 0.35 : 0.85
-  const numberOpacity = subtle ? 0.2 : 0.55
-  const glowIntensity = subtle ? 0.3 : 0.55
+  // count, so interaction stays identical everywhere. brightness is a
+  // visitor-chosen multiplier on top of that (persisted locally), for
+  // anyone who wants them dimmer/brighter than the default.
+  const [brightness, setBrightness] = useState(1)
+  // z-[45] sits above page content (z-40) so butterflies are grabbable over
+  // it; z-[1] sits above the animated background but behind every content
+  // section, for anyone who'd rather they stay out of the way entirely.
+  const [layerBehind, setLayerBehind] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
+  const butterflyOpacity = (subtle ? 0.35 : 0.85) * brightness
+  const numberOpacity = (subtle ? 0.2 : 0.55) * brightness
+  const glowIntensity = (subtle ? 0.3 : 0.55) * brightness
 
   const [butterflies, setButterflies] = useState<Butterfly[]>([])
   const [numbers, setNumbers] = useState<FloatingNumber[]>([])
@@ -200,6 +212,28 @@ export default function EnhancedButterflies({ subtle = false }: { subtle?: boole
   useEffect(() => {
     gravityOnRef.current = gravityOn
   }, [gravityOn])
+
+  useEffect(() => {
+    try {
+      const storedBrightness = localStorage.getItem(BRIGHTNESS_STORAGE_KEY)
+      if (storedBrightness) setBrightness(Math.min(1.6, Math.max(0, parseFloat(storedBrightness))))
+      setLayerBehind(localStorage.getItem(LAYER_STORAGE_KEY) === 'true')
+    } catch {
+      // Private browsing or storage disabled -- defaults are fine.
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(BRIGHTNESS_STORAGE_KEY, String(brightness))
+    } catch {}
+  }, [brightness])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAYER_STORAGE_KEY, String(layerBehind))
+    } catch {}
+  }, [layerBehind])
 
   useEffect(() => {
     setMounted(true)
@@ -919,7 +953,66 @@ export default function EnhancedButterflies({ subtle = false }: { subtle?: boole
         >
           🎮 Games
         </motion.button>
+        <motion.button
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          onClick={() => setSettingsOpen((prev) => !prev)}
+          className="rounded-full border border-accent/30 bg-black/80 px-3 py-3 text-xs font-mono text-accent backdrop-blur-md transition-colors hover:border-accent"
+          title="Butterfly display settings"
+        >
+          ⚙️
+        </motion.button>
       </div>
+
+      <AnimatePresence>
+        {settingsOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            className="fixed bottom-24 left-6 z-[46] w-72 rounded-xl border border-accent/30 bg-black/90 p-4 backdrop-blur-md"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm font-semibold text-white">Butterfly Display</span>
+              <button onClick={() => setSettingsOpen(false)} className="text-white/50 hover:text-white">
+                ✕
+              </button>
+            </div>
+
+            <label className="mb-1 flex items-center justify-between text-xs text-white/70">
+              <span>Brightness</span>
+              <span className="text-accent">{Math.round(brightness * 100)}%</span>
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={1.6}
+              step={0.05}
+              value={brightness}
+              onChange={(e) => setBrightness(parseFloat(e.target.value))}
+              className="w-full accent-[color:var(--accent)]"
+            />
+
+            <div className="mt-4 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-white">Keep behind products</p>
+                <p className="text-[10px] text-white/50">Moves them behind page content instead of floating on top</p>
+              </div>
+              <button
+                onClick={() => setLayerBehind((prev) => !prev)}
+                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${layerBehind ? 'bg-accent' : 'bg-white/20'}`}
+                title={layerBehind ? 'Butterflies are behind page content' : 'Butterflies float above page content'}
+              >
+                <motion.span
+                  className="absolute top-0.5 h-5 w-5 rounded-full bg-black"
+                  animate={{ left: layerBehind ? '1.375rem' : '0.125rem' }}
+                  transition={{ duration: 0.2 }}
+                />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {catchToast && (
@@ -1009,9 +1102,11 @@ export default function EnhancedButterflies({ subtle = false }: { subtle?: boole
         />
       )}
 
-      {/* z-[45]: must sit above the page's content sections (z-40) so the
-          floating elements are actually visible/grabbable over content. */}
-      <div className="fixed inset-0 pointer-events-none z-[45] overflow-hidden">
+      {/* z-[45] (default) sits above the page's content sections (z-40) so
+          the floating elements are visible/grabbable over content. z-[1]
+          (layerBehind) sits above the animated background but behind every
+          content section instead, for visitors who toggle it out of the way. */}
+      <div className={`fixed inset-0 pointer-events-none overflow-hidden ${layerBehind ? 'z-[1]' : 'z-[45]'}`}>
         {butterflies.map((butterfly) => (
           <div
             key={`b-${butterfly.id}`}
