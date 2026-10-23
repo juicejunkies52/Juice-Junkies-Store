@@ -5,12 +5,11 @@ import { motion } from 'framer-motion'
 import { ShoppingBag, Star, Zap, Heart } from 'lucide-react'
 import AnimatedBackground from '@/components/AnimatedBackground'
 import FloatingButterfly from '@/components/FloatingButterfly'
-import SoundWaveVisualization, { FloatingMusicNotes } from '@/components/SoundWaveVisualization'
+import { FloatingMusicNotes } from '@/components/SoundWaveVisualization'
 import Logo from '@/components/Logo'
 import FeaturedProducts from '@/components/FeaturedProducts'
 import CartIcon from '@/components/CartIcon'
 import AccountMenu from '@/components/AccountMenu'
-import AudioPlayer from '@/components/AudioPlayer'
 import MemorialSection from '@/components/MemorialSection'
 import EnhancedButterflies from '@/components/EnhancedButterflies'
 import LyricOverlay from '@/components/LyricOverlay'
@@ -72,14 +71,9 @@ export default function Home() {
       {/* Floating Music Notes */}
       <FloatingMusicNotes />
 
-      {/* Sound Wave Visualization */}
-      <SoundWaveVisualization />
-
       {/* Lyric Overlay */}
       <LyricOverlay />
 
-      {/* Audio Player */}
-      <AudioPlayer />
       <DonationButton />
 
       {/* Navigation Header */}

@@ -12,27 +12,21 @@ export default function AnimatedBackground() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Set canvas size
-    const resizeCanvas = () => {
-      canvas.width = window.innerWidth
-      canvas.height = window.innerHeight
-    }
-    resizeCanvas()
-    window.addEventListener('resize', resizeCanvas)
-
     // Note: the floating "999" numbers used to be drawn here too, but canvas
     // pixels can't be individually grabbed/dragged -- they now live as real
     // draggable elements in EnhancedButterflies instead. This canvas is just
     // the ambient gradient wash behind everything.
 
-    // Animation loop
-    const animate = () => {
-      const canvasWidth = canvas?.width || 800
-      const canvasHeight = canvas?.height || 600
+    // The gradient itself never changes, so this used to run inside a
+    // requestAnimationFrame loop for no reason -- a full-viewport gradient
+    // fill every frame, forever, repainting identical pixels. Draw it once
+    // and only redraw on resize.
+    const draw = () => {
+      const canvasWidth = window.innerWidth
+      const canvasHeight = window.innerHeight
+      canvas.width = canvasWidth
+      canvas.height = canvasHeight
 
-      ctx.clearRect(0, 0, canvasWidth, canvasHeight)
-
-      // Draw subtle gradient background
       const gradient = ctx.createRadialGradient(
         canvasWidth / 2, canvasHeight / 2, 0,
         canvasWidth / 2, canvasHeight / 2, canvasWidth / 2
@@ -42,14 +36,13 @@ export default function AnimatedBackground() {
       gradient.addColorStop(1, 'rgba(57, 255, 20, 0.02)')
       ctx.fillStyle = gradient
       ctx.fillRect(0, 0, canvasWidth, canvasHeight)
-
-      requestAnimationFrame(animate)
     }
 
-    animate()
+    draw()
+    window.addEventListener('resize', draw)
 
     return () => {
-      window.removeEventListener('resize', resizeCanvas)
+      window.removeEventListener('resize', draw)
     }
   }, [])
 
