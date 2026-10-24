@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
         isPreOrder: true,
         depositAmount: deposit,
         balanceDue,
+        shipByDate: product.preOrderShipBy,
         items: {
           create: [{ productId: product.id, quantity: 1, price: product.price }]
         }
@@ -84,7 +85,8 @@ export async function POST(request: NextRequest) {
       deposit,
       balanceDue,
       fullPrice: product.price,
-      shipEstimate: product.preOrderShipEstimate || null
+      shipEstimate: product.preOrderShipEstimate || null,
+      shipByDate: product.preOrderShipBy ? product.preOrderShipBy.toISOString() : null
     })
   } catch (error) {
     console.error('Error creating pre-order deposit:', error)

@@ -159,7 +159,10 @@ async function handlePreOrderDepositPaid(paymentIntent: Stripe.PaymentIntent) {
     productName: firstItem?.product.name || 'your item',
     depositAmount: order.depositAmount || 0,
     balanceDue: order.balanceDue || 0,
-    shipEstimate: firstItem?.product.preOrderShipEstimate || undefined
+    shipEstimate: firstItem?.product.preOrderShipEstimate || undefined,
+    shipByDate: order.shipByDate
+      ? order.shipByDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+      : undefined
   })
   if (result.sent) {
     console.log('📧 Pre-order reservation email sent to:', paymentIntent.receipt_email)

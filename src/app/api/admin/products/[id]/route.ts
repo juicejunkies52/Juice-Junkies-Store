@@ -16,6 +16,7 @@ export async function PATCH(
       preOrderMode?: boolean
       preOrderDeposit?: number | null
       preOrderShipEstimate?: string | null
+      preOrderShipBy?: Date | null
     } = {}
 
     if (typeof body.featured === 'boolean') data.featured = body.featured
@@ -24,6 +25,11 @@ export async function PATCH(
     if (body.preOrderDeposit === null || typeof body.preOrderDeposit === 'number') data.preOrderDeposit = body.preOrderDeposit
     if (body.preOrderShipEstimate === null || typeof body.preOrderShipEstimate === 'string')
       data.preOrderShipEstimate = body.preOrderShipEstimate
+    if (body.preOrderShipBy === null) data.preOrderShipBy = null
+    else if (typeof body.preOrderShipBy === 'string') {
+      const parsed = new Date(body.preOrderShipBy)
+      if (!Number.isNaN(parsed.getTime())) data.preOrderShipBy = parsed
+    }
 
     const product = await prisma.product.update({ where: { id }, data })
     return NextResponse.json({ success: true, product })

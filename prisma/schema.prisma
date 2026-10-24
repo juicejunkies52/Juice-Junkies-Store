@@ -63,6 +63,11 @@ model Product {
   preOrderMode         Boolean     @default(false)
   preOrderDeposit      Float?
   preOrderShipEstimate String?
+  // A concrete target date, shown to customers alongside (not instead of)
+  // the free-text estimate above, and snapshotted onto each Order at
+  // checkout time (see Order.shipByDate). Nullable -- existing pre-orders
+  // that only ever had the vague text estimate keep working unchanged.
+  preOrderShipBy       DateTime?
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt
   orderItems           OrderItem[]
@@ -116,6 +121,14 @@ model Order {
   balanceDue             Float?
   balanceRequestedAt     DateTime?
   balancePaymentIntentId String?
+  // Snapshotted from Product.preOrderShipBy at checkout time, same
+  // reasoning as depositAmount/balanceDue -- a later change to the
+  // product's target date never retroactively changes what an existing
+  // customer was promised. Used both for the admin's "overdue" view and to
+  // show a concrete date (not just a vague estimate) to the customer.
+  shipByDate             DateTime?
+  cancelledAt            DateTime?
+  refundedAmount         Float?
   // Normal orders get the customer's email from paymentIntent.receipt_email
   // at confirm time and never need to store it separately. A pre-order
   // deposit needs it persisted, though -- the balance-due email has to go

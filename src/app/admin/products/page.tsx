@@ -34,6 +34,7 @@ interface Product {
   preOrderMode: boolean
   preOrderDeposit: number | null
   preOrderShipEstimate: string | null
+  preOrderShipBy: string | null
   category?: {
     name: string
   }
@@ -155,6 +156,20 @@ export default function AdminProducts() {
       })
     } catch (error) {
       console.error('Failed to update pre-order ship estimate:', error)
+    }
+  }
+
+  const handlePreOrderShipByChange = async (product: Product, dateStr: string) => {
+    const iso = dateStr ? new Date(dateStr).toISOString() : null
+    setProducts(prev => prev.map(p => p.id === product.id ? { ...p, preOrderShipBy: iso } : p))
+    try {
+      await fetch(`/api/admin/products/${product.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preOrderShipBy: iso })
+      })
+    } catch (error) {
+      console.error('Failed to update pre-order ship-by date:', error)
     }
   }
 
@@ -316,6 +331,15 @@ export default function AdminProducts() {
             onChange={(e) => handlePreOrderShipEstimateChange(product, e.target.value)}
             className="w-full bg-gray-900/50 border border-gray-700 rounded px-2 py-1 text-white text-xs focus:border-accent focus:outline-none"
           />
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-white/40 whitespace-nowrap">Ships by</span>
+            <input
+              type="date"
+              value={product.preOrderShipBy ? product.preOrderShipBy.slice(0, 10) : ''}
+              onChange={(e) => handlePreOrderShipByChange(product, e.target.value)}
+              className="flex-1 bg-gray-900/50 border border-gray-700 rounded px-2 py-1 text-white text-xs focus:border-accent focus:outline-none"
+            />
+          </div>
           {!product.preOrderDeposit && (
             <span className="text-xs text-yellow-500">Set a deposit amount -- pre-order is on but not live to customers without one.</span>
           )}

@@ -24,6 +24,8 @@ interface Order {
   shippingAddress: string
   createdAt: string
   updatedAt: string
+  isPreOrder: boolean
+  shipByDate: string | null
   items: {
     id: string
     quantity: number
@@ -125,11 +127,16 @@ export default function OrdersManagement() {
     }
   }
 
+  const isOverdue = (order: Order) =>
+    order.isPreOrder && !!order.shipByDate && new Date(order.shipByDate) < new Date() &&
+    order.status !== 'paid' && order.status !== 'cancelled'
+
   const filteredOrders = orders.filter(order => {
     if (filter === 'all') return true
     if (filter === 'pending') return order.status === 'pending'
     if (filter === 'unfulfilled') return order.fulfillmentStatus === 'unfulfilled'
     if (filter === 'fulfilled') return order.fulfillmentStatus === 'fulfilled'
+    if (filter === 'overdue') return isOverdue(order)
     return true
   })
 
@@ -181,6 +188,7 @@ export default function OrdersManagement() {
                 <option value="pending">Pending Payment</option>
                 <option value="unfulfilled">Unfulfilled</option>
                 <option value="fulfilled">Fulfilled</option>
+                <option value="overdue">Overdue Pre-Orders</option>
               </select>
             </div>
           </div>
@@ -190,7 +198,7 @@ export default function OrdersManagement() {
       {/* Main Content */}
       <main className="relative z-10 max-w-7xl mx-auto px-6 py-8">
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
           <motion.div
             className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 p-6"
             initial={{ opacity: 0, y: 20 }}
@@ -253,6 +261,23 @@ export default function OrdersManagement() {
                 </p>
               </div>
               <CheckCircle className="w-8 h-8 text-green-400" />
+            </div>
+          </motion.div>
+
+          <motion.div
+            className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-800 p-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm">Overdue Pre-Orders</p>
+                <p className="text-2xl font-bold text-red-400">
+                  {orders.filter(isOverdue).length}
+                </p>
+              </div>
+              <Clock className="w-8 h-8 text-red-400" />
             </div>
           </motion.div>
         </div>

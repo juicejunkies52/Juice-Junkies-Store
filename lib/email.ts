@@ -77,6 +77,7 @@ interface PreOrderReservedData {
   depositAmount: number
   balanceDue: number
   shipEstimate?: string
+  shipByDate?: string
 }
 
 // Sent the instant a pre-order deposit clears -- deliberately distinct
@@ -97,6 +98,7 @@ export async function sendPreOrderReservedEmail(data: PreOrderReservedData): Pro
       collection drop <strong>#${data.orderId.slice(-8).toUpperCase()}</strong>.</p>
       <p>Remaining balance: <strong>$${data.balanceDue.toFixed(2)}</strong> -- we'll email you a payment link for that
       once it's ready to ship${data.shipEstimate ? ` (${data.shipEstimate})` : ''}. Nothing more to do right now.</p>
+      ${data.shipByDate ? `<p>Target ship date: <strong>${data.shipByDate}</strong>. If that changes for any reason, we'll email you -- you're never left wondering.</p>` : ''}
       <p style="color: #999; font-size: 12px; margin-top: 32px;">999 Forever &mdash; Juice Junkies</p>
     </div>
   `
@@ -154,6 +156,51 @@ export async function sendPreOrderBalanceDueEmail(data: PreOrderBalanceDueData):
       from: process.env.RESEND_FROM_EMAIL || 'Juice Junkies <orders@juicejunkies.shop>',
       to: data.customerEmail,
       subject: `Your pre-order is ready - pay the balance for ${data.productName}`,
+      html
+    })
+    if (error) {
+      return { sent: false, reason: error.message }
+    }
+    return { sent: true }
+  } catch (error) {
+    return { sent: false, reason: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+
+interface PreOrderCancelledData {
+  orderId: string
+  customerEmail: string
+  productName: string
+  refundAmount: number
+}
+
+// Admin-triggered when a reservation is cancelled -- always paired with an
+// actual Stripe refund of the deposit (see /api/admin/preorder/cancel),
+// never sent without the money having actually been returned.
+export async function sendPreOrderCancelledEmail(data: PreOrderCancelledData): Promise<SendResult> {
+  if (!resend) {
+    return { sent: false, reason: 'RESEND_API_KEY not configured' }
+  }
+  if (!data.customerEmail) {
+    return { sent: false, reason: 'Order has no customer email' }
+  }
+
+  const html = `
+    <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; color: #111;">
+      <h1 style="font-size: 20px;">Your ${data.productName} reservation was cancelled</h1>
+      <p>Pre-order <strong>#${data.orderId.slice(-8).toUpperCase()}</strong> has been cancelled and your deposit of
+      <strong>$${data.refundAmount.toFixed(2)}</strong> has been refunded to your original payment method.</p>
+      <p>Refunds typically take 5-10 business days to show up, depending on your bank. Sorry for the trouble --
+      reach out if you have any questions.</p>
+      <p style="color: #999; font-size: 12px; margin-top: 32px;">999 Forever &mdash; Juice Junkies</p>
+    </div>
+  `
+
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'Juice Junkies <orders@juicejunkies.shop>',
+      to: data.customerEmail,
+      subject: `Your pre-order was cancelled & refunded - ${data.productName}`,
       html
     })
     if (error) {

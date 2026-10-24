@@ -10,7 +10,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const product = await prisma.product.findUnique({
     where: { id: productId },
-    select: { id: true, name: true, price: true, preOrderMode: true, preOrderDeposit: true, preOrderShipEstimate: true }
+    select: { id: true, name: true, price: true, preOrderMode: true, preOrderDeposit: true, preOrderShipEstimate: true, preOrderShipBy: true }
   })
 
   if (!product || !product.preOrderMode || !product.preOrderDeposit || product.preOrderDeposit < 0.5) {
@@ -22,6 +22,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     name: product.name,
     price: product.price,
     minDeposit: product.preOrderDeposit,
-    shipEstimate: product.preOrderShipEstimate || null
+    shipEstimate: product.preOrderShipEstimate || null,
+    shipByDate: product.preOrderShipBy ? product.preOrderShipBy.toISOString() : null
   })
 }

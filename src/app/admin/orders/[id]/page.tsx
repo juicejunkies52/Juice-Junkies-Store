@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft,
   Package,
@@ -12,7 +12,8 @@ import {
   User,
   MapPin,
   CreditCard,
-  Zap
+  Zap,
+  X
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -35,6 +36,9 @@ interface OrderDetails {
   depositAmount: number | null
   balanceDue: number | null
   balanceRequestedAt: string | null
+  shipByDate: string | null
+  cancelledAt: string | null
+  refundedAmount: number | null
   customerEmail: string | null
   items: {
     id: string
@@ -65,6 +69,9 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
   const [fulfillLoading, setFulfillLoading] = useState(false)
   const [balanceRequestLoading, setBalanceRequestLoading] = useState(false)
   const [balanceRequestMessage, setBalanceRequestMessage] = useState('')
+  const [cancelModalOpen, setCancelModalOpen] = useState(false)
+  const [cancelLoading, setCancelLoading] = useState(false)
+  const [cancelMessage, setCancelMessage] = useState('')
 
   const [resolvedParams, setResolvedParams] = useState<{ id: string } | null>(null)
 
@@ -138,6 +145,34 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
       setBalanceRequestMessage('Failed to send balance request')
     } finally {
       setBalanceRequestLoading(false)
+    }
+  }
+
+  const cancelAndRefund = async () => {
+    if (!order) return
+
+    setCancelLoading(true)
+    setCancelMessage('')
+    try {
+      const response = await fetch('/api/admin/preorder/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: order.id })
+      })
+      const result = await response.json()
+
+      if (response.ok) {
+        setOrder({ ...order, status: 'cancelled', cancelledAt: new Date().toISOString(), refundedAmount: result.refundedAmount })
+        setCancelMessage(result.emailSent ? `Refunded $${result.refundedAmount.toFixed(2)} and emailed the customer.` : `Refunded $${result.refundedAmount.toFixed(2)}, but the email did not send.`)
+        setCancelModalOpen(false)
+      } else {
+        setCancelMessage(result.error || 'Failed to cancel and refund')
+      }
+    } catch (error) {
+      console.error('Error cancelling pre-order:', error)
+      setCancelMessage('Failed to cancel and refund')
+    } finally {
+      setCancelLoading(false)
     }
   }
 
@@ -345,7 +380,23 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
                     <div className="text-gray-400">Balance due</div>
                     <div className="font-medium text-white">${order.balanceDue?.toFixed(2) ?? '--'}</div>
                   </div>
+                  {order.shipByDate && (
+                    <div className="col-span-2">
+                      <div className="text-gray-400">Ship by</div>
+                      <div className={`font-medium ${new Date(order.shipByDate) < new Date() && order.status !== 'paid' && order.status !== 'cancelled' ? 'text-red-400' : 'text-white'}`}>
+                        {new Date(order.shipByDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                        {new Date(order.shipByDate) < new Date() && order.status !== 'paid' && order.status !== 'cancelled' && ' -- overdue'}
+                      </div>
+                    </div>
+                  )}
                 </div>
+
+                {order.status === 'cancelled' && (
+                  <div className="mt-4 border-t border-gray-700 pt-4 text-sm text-gray-400">
+                    Cancelled {order.cancelledAt ? new Date(order.cancelledAt).toLocaleDateString() : ''} -- refunded ${order.refundedAmount?.toFixed(2) ?? '0.00'}.
+                  </div>
+                )}
+
                 {order.status === 'deposit_paid' && (
                   <div className="mt-4 border-t border-gray-700 pt-4">
                     {order.balanceRequestedAt ? (
@@ -368,6 +419,19 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
                     </button>
                     {!order.customerEmail && <p className="mt-2 text-xs text-yellow-500">No email on file for this reservation.</p>}
                     {balanceRequestMessage && <p className="mt-2 text-xs text-gray-400">{balanceRequestMessage}</p>}
+                  </div>
+                )}
+
+                {(order.status === 'pending' || order.status === 'deposit_paid') && (
+                  <div className="mt-4 border-t border-gray-700 pt-4">
+                    <button
+                      onClick={() => setCancelModalOpen(true)}
+                      className="flex items-center gap-2 rounded-lg border border-red-500/50 px-4 py-2 text-red-400 transition-colors hover:bg-red-500/10"
+                    >
+                      <XCircle className="h-4 w-4" />
+                      Cancel &amp; Refund Deposit
+                    </button>
+                    {cancelMessage && <p className="mt-2 text-xs text-gray-400">{cancelMessage}</p>}
                   </div>
                 )}
               </motion.div>
@@ -491,6 +555,47 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
           </div>
         </div>
       </main>
+
+      <AnimatePresence>
+        {cancelModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => !cancelLoading && setCancelModalOpen(false)}
+          >
+            <motion.div
+              className="w-full max-w-sm rounded-xl border border-red-500/30 bg-black/90 p-6"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-red-400">
+                  <XCircle className="w-5 h-5" />
+                  <h2 className="font-bold text-white">Cancel &amp; Refund</h2>
+                </div>
+                <button onClick={() => setCancelModalOpen(false)} className="text-white/50 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="mb-4 text-sm text-white/80">
+                This refunds the ${order?.depositAmount?.toFixed(2) ?? '0.00'} deposit back to the customer's original
+                payment method and marks this reservation cancelled. This can't be undone.
+              </p>
+              <button
+                onClick={cancelAndRefund}
+                disabled={cancelLoading}
+                className="w-full rounded-lg bg-red-500 py-3 font-semibold text-white hover:bg-red-400 disabled:opacity-50"
+              >
+                {cancelLoading ? 'Refunding...' : `Refund $${order?.depositAmount?.toFixed(2) ?? '0.00'} & Cancel`}
+              </button>
+              {cancelMessage && <p className="mt-3 text-xs text-red-400">{cancelMessage}</p>}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

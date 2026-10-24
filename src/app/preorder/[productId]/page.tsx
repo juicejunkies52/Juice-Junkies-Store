@@ -125,6 +125,7 @@ export default function PreOrderPage() {
     price: number
     minDeposit: number
     shipEstimate: string | null
+    shipByDate: string | null
   } | null>(null)
   const [depositInput, setDepositInput] = useState('')
   const [starting, setStarting] = useState(false)
@@ -136,6 +137,7 @@ export default function PreOrderPage() {
     balanceDue: number
     fullPrice: number
     shipEstimate: string | null
+    shipByDate: string | null
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -162,7 +164,7 @@ export default function PreOrderPage() {
           setError(data.error || 'This product is not open for pre-order right now.')
           return
         }
-        setProductInfo({ name: data.name, price: data.price, minDeposit: data.minDeposit, shipEstimate: data.shipEstimate })
+        setProductInfo({ name: data.name, price: data.price, minDeposit: data.minDeposit, shipEstimate: data.shipEstimate, shipByDate: data.shipByDate })
         setDepositInput(data.minDeposit.toFixed(2))
       } catch {
         setError('Something went wrong loading this pre-order. Please try again.')
@@ -192,7 +194,7 @@ export default function PreOrderPage() {
       }
       setClientSecret(data.clientSecret)
       setOrderId(data.orderId)
-      setSummary({ deposit: data.deposit, balanceDue: data.balanceDue, fullPrice: data.fullPrice, shipEstimate: data.shipEstimate })
+      setSummary({ deposit: data.deposit, balanceDue: data.balanceDue, fullPrice: data.fullPrice, shipEstimate: data.shipEstimate, shipByDate: data.shipByDate })
     } catch {
       setError('Something went wrong starting your pre-order. Please try again.')
     } finally {
@@ -298,7 +300,14 @@ export default function PreOrderPage() {
                   <span>Remaining balance (paid later, before it ships)</span>
                   <span>${previewBalance.toFixed(2)}</span>
                 </div>
-                {productInfo.shipEstimate && <p className="mt-2 text-xs text-white/40">Estimated: {productInfo.shipEstimate}</p>}
+                {productInfo.shipByDate ? (
+                  <p className="mt-2 text-xs text-white/40">
+                    Ships by {new Date(productInfo.shipByDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                    {productInfo.shipEstimate ? ` (${productInfo.shipEstimate})` : ''}
+                  </p>
+                ) : (
+                  productInfo.shipEstimate && <p className="mt-2 text-xs text-white/40">Estimated: {productInfo.shipEstimate}</p>
+                )}
               </div>
 
               <motion.button
@@ -326,7 +335,14 @@ export default function PreOrderPage() {
                   <span>Remaining balance (paid later, before it ships)</span>
                   <span>${summary.balanceDue.toFixed(2)}</span>
                 </div>
-                {summary.shipEstimate && <p className="mt-3 text-xs text-white/40">Estimated: {summary.shipEstimate}</p>}
+                {summary.shipByDate ? (
+                  <p className="mt-3 text-xs text-white/40">
+                    Ships by {new Date(summary.shipByDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                    {summary.shipEstimate ? ` (${summary.shipEstimate})` : ''}
+                  </p>
+                ) : (
+                  summary.shipEstimate && <p className="mt-3 text-xs text-white/40">Estimated: {summary.shipEstimate}</p>
+                )}
               </div>
 
               <div className="rounded-xl border border-gray-800 bg-black/20 p-8 backdrop-blur-sm">

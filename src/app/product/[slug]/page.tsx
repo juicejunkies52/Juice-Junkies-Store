@@ -43,6 +43,7 @@ interface Product {
   preOrderMode: boolean
   preOrderDeposit: number | null
   preOrderShipEstimate: string | null
+  preOrderShipBy: string | null
   variants: Variant[]
   category?: {
     name: string
@@ -329,7 +330,9 @@ export default function ProductPage() {
                   <p className="font-bold text-accent">🔥 Official Launch Collection -- Pre-Order Available</p>
                   <p className="mt-1 text-sm text-white/80">
                     Secure yours now for as little as <strong>${product.preOrderDeposit.toFixed(2)}</strong> -- pay the rest
-                    when it's ready to ship{product.preOrderShipEstimate ? ` (${product.preOrderShipEstimate})` : ''}. Want to
+                    when it's ready to ship{product.preOrderShipBy
+                      ? ` by ${new Date(product.preOrderShipBy).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`
+                      : product.preOrderShipEstimate ? ` (${product.preOrderShipEstimate})` : ''}. Want to
                     pay more now to owe less later? You can choose your deposit on the next page. We'll email you when it's time.
                   </p>
                 </div>
