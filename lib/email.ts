@@ -167,6 +167,58 @@ export async function sendPreOrderBalanceDueEmail(data: PreOrderBalanceDueData):
   }
 }
 
+interface PreOrderOverdueData {
+  orderId: string
+  customerEmail: string
+  productName: string
+  shipByDate: string
+  cancelUrl: string
+}
+
+// Sent once per order (see lib/preorderOverdue.ts) the first time a
+// pre-order's shipByDate passes without the balance being paid. Always
+// carries a real, working self-serve cancel link -- this is the piece that
+// makes taking an advance deposit defensible: the customer always has an
+// actual way out if a promised date is missed, not just an apology.
+export async function sendPreOrderOverdueEmail(data: PreOrderOverdueData): Promise<SendResult> {
+  if (!resend) {
+    return { sent: false, reason: 'RESEND_API_KEY not configured' }
+  }
+  if (!data.customerEmail) {
+    return { sent: false, reason: 'Order has no customer email' }
+  }
+
+  const html = `
+    <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; color: #111;">
+      <h1 style="font-size: 20px;">${data.productName} is running behind schedule</h1>
+      <p>Your pre-order <strong>#${data.orderId.slice(-8).toUpperCase()}</strong> was originally targeted to ship by
+      <strong>${data.shipByDate}</strong>, and we've missed that. We're sorry about that -- this is a solo-run shop and
+      sometimes things take longer than planned.</p>
+      <p>You don't have to do anything if you're happy to keep waiting -- we're still working on it. But if you'd
+      rather not wait any longer, you can cancel and get your deposit back in full, right now, no questions asked:</p>
+      <a href="${data.cancelUrl}" style="display:inline-block; background:#ef4444; color:#fff; padding:14px 28px; border-radius:8px; font-weight:bold; text-decoration:none; margin: 12px 0;">
+        Cancel & Refund My Deposit
+      </a>
+      <p style="color: #999; font-size: 12px; margin-top: 32px;">999 Forever &mdash; Juice Junkies</p>
+    </div>
+  `
+
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'Juice Junkies <orders@juicejunkies.shop>',
+      to: data.customerEmail,
+      subject: `An update on your ${data.productName} pre-order`,
+      html
+    })
+    if (error) {
+      return { sent: false, reason: error.message }
+    }
+    return { sent: true }
+  } catch (error) {
+    return { sent: false, reason: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+
 interface PreOrderCancelledData {
   orderId: string
   customerEmail: string

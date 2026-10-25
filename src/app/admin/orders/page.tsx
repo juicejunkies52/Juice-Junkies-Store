@@ -49,6 +49,8 @@ export default function OrdersManagement() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
+  const [checkingOverdue, setCheckingOverdue] = useState(false)
+  const [overdueCheckMessage, setOverdueCheckMessage] = useState('')
 
   useEffect(() => {
     fetchOrders()
@@ -65,6 +67,30 @@ export default function OrdersManagement() {
       console.error('Failed to fetch orders:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const checkOverdueNow = async () => {
+    setCheckingOverdue(true)
+    setOverdueCheckMessage('')
+    try {
+      const response = await fetch('/api/admin/preorder/check-overdue', { method: 'POST' })
+      const data = await response.json()
+      if (response.ok) {
+        setOverdueCheckMessage(
+          data.checked === 0
+            ? 'No newly-overdue reservations to notify.'
+            : `Checked ${data.checked}, notified ${data.notified}${data.failed ? `, ${data.failed} failed` : ''}.`
+        )
+        await fetchOrders()
+      } else {
+        setOverdueCheckMessage(data.error || 'Failed to check overdue pre-orders')
+      }
+    } catch (error) {
+      console.error('Failed to check overdue pre-orders:', error)
+      setOverdueCheckMessage('Failed to check overdue pre-orders')
+    } finally {
+      setCheckingOverdue(false)
     }
   }
 
@@ -179,6 +205,18 @@ export default function OrdersManagement() {
               </div>
             </div>
             <div className="flex items-center gap-4">
+              <div className="flex flex-col items-end">
+                <button
+                  onClick={checkOverdueNow}
+                  disabled={checkingOverdue}
+                  title="Email a self-serve cancel link to any pre-order that's newly past its ship-by date"
+                  className="flex items-center gap-2 rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                >
+                  <Clock className="w-4 h-4" />
+                  {checkingOverdue ? 'Checking...' : 'Check Overdue Now'}
+                </button>
+                {overdueCheckMessage && <p className="mt-1 text-xs text-gray-400">{overdueCheckMessage}</p>}
+              </div>
               <select
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}

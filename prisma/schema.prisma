@@ -129,6 +129,10 @@ model Order {
   shipByDate             DateTime?
   cancelledAt            DateTime?
   refundedAmount         Float?
+  // Set the first (and only) time the overdue-check cron emails the
+  // customer about a missed shipByDate -- prevents re-notifying on every
+  // daily run once they've already been told once.
+  overdueNoticeSentAt    DateTime?
   // Normal orders get the customer's email from paymentIntent.receipt_email
   // at confirm time and never need to store it separately. A pre-order
   // deposit needs it persisted, though -- the balance-due email has to go
