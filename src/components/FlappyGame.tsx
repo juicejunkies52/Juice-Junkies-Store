@@ -41,12 +41,20 @@ const BIRD_SIZE = 40
 // the hitbox being noticeably smaller than the visible sprite -- the bird
 // "looks" like it clips a pipe a beat before it actually would.
 const HITBOX_INSET = 7
-const GRAVITY = 0.42
-const FLAP_VELOCITY = -7.6
+// Raising gravity and flap strength together (not by the same factor --
+// gravity harder, relative to flap, than before) keeps almost the same
+// rise height per flap (69px -> 71px) but cuts the hang time at the peak
+// of the arc from ~300ms to ~255ms. That hang time is most of what reads
+// as "floaty" vs. "snappy": the old numbers gave a soft, slow-motion feel
+// at the top of every flap that real Flappy Bird doesn't have.
+const GRAVITY = 0.6
+const FLAP_VELOCITY = -9.2
 // Real Flappy Bird caps fall speed -- without this a long drop keeps
 // accelerating forever, which both feels wrong and makes the bird cross
 // the whole pipe gap too fast to react to once it's been falling a while.
-const MAX_FALL_VELOCITY = 10.5
+// Raised in proportion to the stronger gravity above so a fall still
+// takes a similar amount of time to hit the cap, not sooner.
+const MAX_FALL_VELOCITY = 13
 const PIPE_WIDTH = 64
 const PIPE_GAP = 175
 const PIPE_SPACING = 240
