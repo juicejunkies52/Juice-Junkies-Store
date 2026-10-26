@@ -37,11 +37,28 @@ function PlayerSprite({ type, rotation }: { type: string; rotation: number }) {
 
 const BIRD_X = 90
 const BIRD_SIZE = 40
+// Real Flappy Bird's forgiving feel despite tight gaps comes partly from
+// the hitbox being noticeably smaller than the visible sprite -- the bird
+// "looks" like it clips a pipe a beat before it actually would.
+const HITBOX_INSET = 7
 const GRAVITY = 0.42
 const FLAP_VELOCITY = -7.6
+// Real Flappy Bird caps fall speed -- without this a long drop keeps
+// accelerating forever, which both feels wrong and makes the bird cross
+// the whole pipe gap too fast to react to once it's been falling a while.
+const MAX_FALL_VELOCITY = 10.5
 const PIPE_WIDTH = 64
 const PIPE_GAP = 175
 const PIPE_SPACING = 240
+// requestAnimationFrame fires at whatever rate the display refreshes
+// (60Hz, 120Hz, etc.), so applying GRAVITY once per callback made the bird
+// fall measurably faster on a high-refresh-rate screen than a 60Hz one --
+// same code, different physics depending on hardware. Scaling every
+// per-frame change by elapsed real time against a 60fps baseline fixes
+// that: the bird falls at the same real-world speed everywhere. Clamped so
+// a tab left in the background doesn't resume with one huge physics jump.
+const BASELINE_FRAME_MS = 1000 / 60
+const MAX_DT_SCALE = 3
 // Eases in instead of starting at full pace -- a flat speed from the first
 // pipe was a big part of why it felt off from the genre's actual rhythm.
 const BASE_PIPE_SPEED = 2.6
@@ -247,20 +264,28 @@ export default function FlappyGame({
   useEffect(() => {
     if (status !== 'playing') return
 
-    const loop = () => {
-      const pipeSpeed = Math.min(BASE_PIPE_SPEED + scoreRef.current * SPEED_RAMP_PER_POINT, MAX_PIPE_SPEED)
+    let lastTimestamp: number | null = null
 
-      birdVelocityRef.current += GRAVITY
-      birdYRef.current += birdVelocityRef.current
+    const loop = (timestamp: number) => {
+      if (lastTimestamp === null) lastTimestamp = timestamp
+      const dtScale = Math.min(MAX_DT_SCALE, (timestamp - lastTimestamp) / BASELINE_FRAME_MS)
+      lastTimestamp = timestamp
+
+      const pipeSpeed = Math.min(BASE_PIPE_SPEED + scoreRef.current * SPEED_RAMP_PER_POINT, MAX_PIPE_SPEED) * dtScale
+
+      birdVelocityRef.current = Math.min(MAX_FALL_VELOCITY, birdVelocityRef.current + GRAVITY * dtScale)
+      birdYRef.current += birdVelocityRef.current * dtScale
       setBirdRotation(Math.max(-25, Math.min(75, birdVelocityRef.current * 4)))
 
-      const birdTop = birdYRef.current
-      const birdBottom = birdYRef.current + BIRD_SIZE
+      const birdTop = birdYRef.current + HITBOX_INSET
+      const birdBottom = birdYRef.current + BIRD_SIZE - HITBOX_INSET
+      const birdLeft = BIRD_X + HITBOX_INSET
+      const birdRight = BIRD_X + BIRD_SIZE - HITBOX_INSET
       let hit = birdBottom >= dims.height || birdTop <= 0
 
       pipesRef.current = pipesRef.current.map((pipe) => {
         const x = pipe.x - pipeSpeed
-        const inXRange = x < BIRD_X + BIRD_SIZE && x + PIPE_WIDTH > BIRD_X
+        const inXRange = x < birdRight && x + PIPE_WIDTH > birdLeft
         if (inXRange) {
           const gapTop = pipe.gapY - PIPE_GAP / 2
           const gapBottom = pipe.gapY + PIPE_GAP / 2
