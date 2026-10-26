@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createHash } from 'crypto'
 import { checkAndNotifyOverduePreOrders } from '../../../../../lib/preorderOverdue'
+
+const hash = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 12)
 
 // Invoked daily by Vercel Cron (see vercel.json). Not under /api/admin, so
 // it isn't covered by the admin-token cookie gate in src/middleware.ts --
@@ -12,9 +15,16 @@ export async function GET(request: NextRequest) {
   // the real auth check below keeps failing. Removing this immediately
   // after use.
   if (request.nextUrl.searchParams.get('debug') === 'jj999') {
+    const authHeader = request.headers.get('authorization')
+    const envSecret = process.env.CRON_SECRET
     return NextResponse.json({
-      hasSecret: !!process.env.CRON_SECRET,
-      secretLength: process.env.CRON_SECRET?.length ?? 0
+      hasSecret: !!envSecret,
+      secretLength: envSecret?.length ?? 0,
+      secretHash: envSecret ? hash(envSecret) : null,
+      authHeaderReceived: !!authHeader,
+      authHeaderLength: authHeader?.length ?? 0,
+      authHeaderHash: authHeader ? hash(authHeader) : null,
+      expectedHeaderHash: envSecret ? hash(`Bearer ${envSecret}`) : null
     })
   }
 
