@@ -11,7 +11,8 @@ import {
   Eye,
   MoreHorizontal,
   ArrowLeft,
-  Filter
+  Filter,
+  AlertTriangle
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -26,6 +27,8 @@ interface Order {
   updatedAt: string
   isPreOrder: boolean
   shipByDate: string | null
+  emailDeliveryFailed: boolean
+  emailDeliveryError: string | null
   items: {
     id: string
     quantity: number
@@ -378,6 +381,15 @@ export default function OrdersManagement() {
                             <div className="text-xs text-cyan-400 flex items-center gap-1 mt-1">
                               <Truck className="w-3 h-3" />
                               {order.trackingNumber}
+                            </div>
+                          )}
+                          {order.emailDeliveryFailed && (
+                            <div
+                              className="text-xs text-yellow-500 flex items-center gap-1 mt-1"
+                              title={order.emailDeliveryError || 'An email to this customer failed to send'}
+                            >
+                              <AlertTriangle className="w-3 h-3" />
+                              Email failed
                             </div>
                           )}
                         </div>

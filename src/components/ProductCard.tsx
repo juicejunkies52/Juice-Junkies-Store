@@ -1,10 +1,11 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { ShoppingCart, Heart, Star } from 'lucide-react'
+import { ShoppingCart, Heart, Star, Clock } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
 import ProductImage from './ProductImage'
+import PreOrderCapCountdown from './PreOrderCapCountdown'
 import { useCart } from '@/contexts/CartContext'
 
 interface Product {
@@ -18,6 +19,8 @@ interface Product {
   inventoryQty: number
   preOrderMode?: boolean
   preOrderDeposit?: number | null
+  preOrderCapReached?: boolean
+  preOrderCapResetsAt?: string
   category?: {
     name: string
     slug: string
@@ -40,6 +43,7 @@ export default function ProductCard({ product, index = 0, viewMode = 'grid' }: P
   const isLowStock = product.inventoryQty <= 10
   const isOutOfStock = product.inventoryQty === 0
   const isPreOrder = Boolean(product.preOrderMode && product.preOrderDeposit)
+  const isPreOrderCapped = isPreOrder && product.preOrderCapReached
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault() // Prevent navigation if clicking on the card
@@ -82,7 +86,7 @@ export default function ProductCard({ product, index = 0, viewMode = 'grid' }: P
 
         {/* Badges */}
         <div className="absolute top-3 left-3 z-20 flex flex-col gap-2">
-          {isPreOrder && (
+          {isPreOrder && !isPreOrderCapped && (
             <motion.span
               className="px-2 py-1 bg-gradient-to-r from-accent to-yellow-400 text-black text-xs font-bold rounded"
               initial={{ scale: 0 }}
@@ -90,6 +94,17 @@ export default function ProductCard({ product, index = 0, viewMode = 'grid' }: P
               transition={{ delay: 0.2 }}
             >
               🔥 Pre-Order
+            </motion.span>
+          )}
+          {isPreOrderCapped && (
+            <motion.span
+              className="flex items-center gap-1 px-2 py-1 bg-black/80 border border-accent/40 text-accent text-xs font-bold rounded"
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: 0.2 }}
+            >
+              <Clock className="w-3 h-3" />
+              Full for today
             </motion.span>
           )}
           {discount > 0 && (
@@ -170,7 +185,12 @@ export default function ProductCard({ product, index = 0, viewMode = 'grid' }: P
         </div>
 
         {/* Add to Cart / Pre-Order Button */}
-        {isPreOrder ? (
+        {isPreOrderCapped ? (
+          <div className="w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 bg-gray-700/60 text-gray-300 cursor-not-allowed">
+            <Clock className="w-4 h-4" />
+            Resets in <PreOrderCapCountdown resetsAt={product.preOrderCapResetsAt!} />
+          </div>
+        ) : isPreOrder ? (
           <Link href={`/preorder/${product.id}`} onClick={(e) => e.stopPropagation()}>
             <motion.div
               className="w-full py-3 rounded-lg font-semibold transition-all duration-300 flex items-center justify-center gap-2 bg-gradient-to-r from-accent to-yellow-400 text-black hover:shadow-lg"

@@ -56,9 +56,34 @@ export default function AdminProducts() {
   const [bulkDepositInput, setBulkDepositInput] = useState('5')
   const [bulkResult, setBulkResult] = useState<{ sent: number; failed: number } | null>(null)
 
+  // Shared across every product (not per-product) -- see lib/preorderCap.ts.
+  // '' in the input means "no cap set yet" so it doesn't flash a stale 0.
+  const [dailyCapInput, setDailyCapInput] = useState('')
+  const [savingCap, setSavingCap] = useState(false)
+
   useEffect(() => {
     fetchProducts()
+    fetch('/api/admin/settings')
+      .then((r) => r.json())
+      .then((d) => setDailyCapInput(d.dailyPreOrderCap === null ? '' : String(d.dailyPreOrderCap)))
+      .catch(() => {})
   }, [])
+
+  const saveDailyCap = async () => {
+    setSavingCap(true)
+    try {
+      const value = dailyCapInput.trim() === '' ? null : parseInt(dailyCapInput, 10)
+      await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dailyPreOrderCap: value })
+      })
+    } catch (error) {
+      console.error('Failed to save daily pre-order cap:', error)
+    } finally {
+      setSavingCap(false)
+    }
+  }
 
   const fetchProducts = async () => {
     try {
@@ -430,6 +455,22 @@ export default function AdminProducts() {
               <p className="text-gray-400 mt-1">Manage your store inventory and products</p>
             </div>
             <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 rounded-lg border border-gray-700 bg-black/40 px-3 py-2">
+                <label htmlFor="daily-cap" className="text-xs text-gray-400 whitespace-nowrap">
+                  Daily pre-order cap
+                </label>
+                <input
+                  id="daily-cap"
+                  type="number"
+                  min="0"
+                  value={dailyCapInput}
+                  onChange={(e) => setDailyCapInput(e.target.value)}
+                  onBlur={saveDailyCap}
+                  placeholder="no cap"
+                  className="w-20 bg-gray-900/50 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:border-accent focus:outline-none"
+                />
+                {savingCap && <span className="text-xs text-gray-500">saving...</span>}
+              </div>
               <motion.button
                 onClick={openBulkModal}
                 disabled={bulkToggling || products.length === 0}

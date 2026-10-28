@@ -15,6 +15,8 @@ interface Product {
   inventoryQty: number
   preOrderMode?: boolean
   preOrderDeposit?: number | null
+  preOrderCapReached?: boolean
+  preOrderCapResetsAt?: string
   category?: {
     name: string
     slug: string

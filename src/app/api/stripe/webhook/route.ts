@@ -4,6 +4,7 @@ import { stripe, formatAmountFromStripe } from '../../../../../lib/stripe'
 import { prisma } from '../../../../../lib/prisma'
 import { fulfillPrintfulOrder } from '../../../../../lib/fulfillOrder'
 import { sendOrderConfirmationEmail, sendAdminOrderNotificationEmail, sendPreOrderReservedEmail } from '../../../../../lib/email'
+import { trackEmailResult } from '../../../../../lib/emailDeliveryTracking'
 import Stripe from 'stripe'
 
 // This is your Stripe CLI webhook secret for testing your endpoint locally
@@ -58,7 +59,13 @@ export async function POST(request: NextRequest) {
         if (orderType === 'preorder_balance') {
           await handlePreOrderBalancePaid(paymentIntentSucceeded)
           await sendOrderConfirmation(paymentIntentSucceeded)
-          await fulfillOrder(paymentIntentSucceeded)
+          // Deliberately NOT auto-fulfilling here, unlike a normal order --
+          // Printful charges the store's own payment method the moment an
+          // order is confirmed for production, completely independent of
+          // whether this Stripe payment has actually paid out to the
+          // owner's bank yet. Fulfillment stays a manual admin action (the
+          // existing "Fulfill" button on the order page) until there's
+          // real money on hand to cover it, not just "Stripe says paid."
           break
         }
 
@@ -169,6 +176,7 @@ async function handlePreOrderDepositPaid(paymentIntent: Stripe.PaymentIntent) {
   } else {
     console.log('📧 Pre-order reservation email not sent:', result.reason)
   }
+  await trackEmailResult(order.id, result)
 
   const admin = await prisma.admin.findFirst({ select: { email: true } })
   if (admin?.email && firstItem) {

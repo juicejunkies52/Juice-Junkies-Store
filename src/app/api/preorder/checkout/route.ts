@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { stripe, formatAmountForStripe } from '../../../../../lib/stripe'
 import { prisma } from '../../../../../lib/prisma'
 import { getCurrentUser } from '../../../../../lib/userAuth'
+import { getDailyPreOrderCapStatus } from '../../../../../lib/preorderCap'
 
 // Deliberately isolated from /api/checkout -- a pre-order deposit is a
 // completely different transaction shape (single product, no cart, no
@@ -28,6 +29,20 @@ export async function POST(request: NextRequest) {
     }
     if (!product.preOrderMode || !product.preOrderDeposit || product.preOrderDeposit < 0.5) {
       return NextResponse.json({ error: 'This product is not open for pre-order' }, { status: 400 })
+    }
+
+    // Shared across every product, not per-product -- sized around what the
+    // email provider plan and the owner's own cash flow can absorb in one
+    // day (see lib/preorderCap.ts). Checked right before creating the order
+    // rather than reserving a slot in advance, which is fine for a soft
+    // daily cap like this -- worst case under a true simultaneous burst is
+    // a handful of extra reservations, not an inventory or money problem.
+    const capStatus = await getDailyPreOrderCapStatus()
+    if (capStatus.capReached) {
+      return NextResponse.json(
+        { error: "Today's pre-order slots are full.", capReached: true, resetsAt: capStatus.resetsAt },
+        { status: 429 }
+      )
     }
 
     // The admin-set deposit is a floor, not a fixed amount -- a customer can

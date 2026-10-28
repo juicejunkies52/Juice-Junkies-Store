@@ -1,6 +1,7 @@
 import { prisma } from './prisma'
 import { sendPreOrderOverdueEmail } from './email'
 import { signPreOrderCancelToken } from './preorderToken'
+import { trackEmailResult } from './emailDeliveryTracking'
 
 interface OverdueCheckResult {
   checked: number
@@ -53,6 +54,7 @@ export async function checkAndNotifyOverduePreOrders(): Promise<OverdueCheckResu
       // failed send here is something the admin can see and act on
       // manually, not something to auto-repeat indefinitely.
       await prisma.order.update({ where: { id: order.id }, data: { overdueNoticeSentAt: new Date() } })
+      await trackEmailResult(order.id, emailResult)
 
       if (emailResult.sent) {
         result.notified++

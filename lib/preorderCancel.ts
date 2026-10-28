@@ -1,6 +1,7 @@
 import { prisma } from './prisma'
 import { stripe } from './stripe'
 import { sendPreOrderCancelledEmail } from './email'
+import { trackEmailResult } from './emailDeliveryTracking'
 
 interface CancelResult {
   ok: boolean
@@ -52,6 +53,7 @@ export async function cancelPreOrderAndRefund(orderId: string): Promise<CancelRe
       refundAmount: refundedAmount
     })
     emailSent = result.sent
+    await trackEmailResult(order.id, result)
   }
 
   return { ok: true, refundedAmount, emailSent }

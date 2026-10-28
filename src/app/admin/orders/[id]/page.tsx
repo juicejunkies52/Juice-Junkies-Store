@@ -13,7 +13,8 @@ import {
   MapPin,
   CreditCard,
   Zap,
-  X
+  X,
+  AlertTriangle
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -40,6 +41,8 @@ interface OrderDetails {
   cancelledAt: string | null
   refundedAmount: number | null
   customerEmail: string | null
+  emailDeliveryFailed: boolean
+  emailDeliveryError: string | null
   items: {
     id: string
     quantity: number
@@ -280,6 +283,16 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
 
       {/* Main Content */}
       <main className="relative z-10 max-w-7xl mx-auto px-6 py-8">
+        {order.emailDeliveryFailed && (
+          <div className="mb-6 flex items-start gap-3 rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4">
+            <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-500" />
+            <div>
+              <p className="text-sm font-medium text-yellow-500">An email to this customer failed to send</p>
+              {order.emailDeliveryError && <p className="mt-1 text-xs text-yellow-500/70">{order.emailDeliveryError}</p>}
+              <p className="mt-1 text-xs text-gray-400">They may not know what&apos;s happening with this order -- worth reaching out directly.</p>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Order Items */}
           <div className="lg:col-span-2 space-y-6">
@@ -419,6 +432,17 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
                     </button>
                     {!order.customerEmail && <p className="mt-2 text-xs text-yellow-500">No email on file for this reservation.</p>}
                     {balanceRequestMessage && <p className="mt-2 text-xs text-gray-400">{balanceRequestMessage}</p>}
+                  </div>
+                )}
+
+                {order.status === 'paid' && order.fulfillmentStatus === 'unfulfilled' && (
+                  <div className="mt-4 border-t border-gray-700 pt-4">
+                    <p className="text-sm text-yellow-500">
+                      Balance is fully paid, but this isn&apos;t sent to Printful yet on purpose -- Printful charges your
+                      own payment method the moment you confirm production, separate from whether this Stripe payment
+                      has actually paid out to your bank yet. Make sure Printful is funded, then use the Fulfill Order
+                      button below.
+                    </p>
                   </div>
                 )}
 

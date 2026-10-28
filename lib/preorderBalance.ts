@@ -4,6 +4,7 @@ import { calculateTax } from '../src/lib/tax'
 import { calculateShipping } from '../src/lib/shipping'
 import { signPreOrderBalanceToken } from './preorderToken'
 import { sendPreOrderBalanceDueEmail } from './email'
+import { trackEmailResult } from './emailDeliveryTracking'
 
 interface BalanceRequestResult {
   ok: boolean
@@ -72,6 +73,7 @@ export async function sendPreOrderBalanceRequest(orderId: string): Promise<Balan
     balanceAmount: chargeAmount,
     payUrl
   })
+  await trackEmailResult(order.id, result)
 
   return { ok: true, emailSent: result.sent, payUrl }
 }

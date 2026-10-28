@@ -7,6 +7,7 @@ import { Elements, useStripe, useElements, PaymentElement } from '@stripe/react-
 import { Lock, ArrowLeft } from 'lucide-react'
 import { getStripe } from '../../../../lib/stripe'
 import AnimatedBackground from '../../../components/AnimatedBackground'
+import PreOrderCapCountdown from '../../../components/PreOrderCapCountdown'
 
 // Deliberately its own small form rather than reusing CheckoutForm -- a
 // pre-order deposit collects no shipping address (that's gathered later,
@@ -127,6 +128,7 @@ export default function PreOrderPage() {
     shipEstimate: string | null
     shipByDate: string | null
   } | null>(null)
+  const [capInfo, setCapInfo] = useState<{ reached: boolean; resetsAt: string } | null>(null)
   const [depositInput, setDepositInput] = useState('')
   const [starting, setStarting] = useState(false)
 
@@ -165,6 +167,7 @@ export default function PreOrderPage() {
           return
         }
         setProductInfo({ name: data.name, price: data.price, minDeposit: data.minDeposit, shipEstimate: data.shipEstimate, shipByDate: data.shipByDate })
+        setCapInfo({ reached: data.capReached, resetsAt: data.capResetsAt })
         setDepositInput(data.minDeposit.toFixed(2))
       } catch {
         setError('Something went wrong loading this pre-order. Please try again.')
@@ -236,6 +239,26 @@ export default function PreOrderPage() {
           <h1 className="mb-4 text-2xl text-white">{error || 'Unable to start pre-order'}</h1>
           <button onClick={() => router.push('/')} className="btn-primary">
             Return Home
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (capInfo?.reached && !clientSecret) {
+    return (
+      <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background">
+        <AnimatedBackground />
+        <div className="text-center px-6">
+          <h1 className="mb-2 text-2xl text-white">Today&apos;s pre-order slots are full</h1>
+          <p className="mb-2 text-gray-400">
+            {productInfo.name} is still available -- come back when today&apos;s batch resets.
+          </p>
+          <p className="mb-6 text-lg font-semibold text-accent">
+            Resets in <PreOrderCapCountdown resetsAt={capInfo.resetsAt} />
+          </p>
+          <button onClick={() => router.push('/')} className="btn-primary">
+            Back to the Store
           </button>
         </div>
       </div>
