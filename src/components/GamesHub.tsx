@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import FlappyGame from './FlappyGame'
 import LastStandGame from './LastStandGame'
 import MineWorldGame from './MineWorldGame'
+import SportsGame from './SportsGame'
 // ClubhouseGame and NightsGame are archived for now (not deleted -- just
 // not wired into the hub) to cut scope/clutter while the destroy-mode
 // rework is the focus. Re-add the imports + buttons + AnimatePresence
@@ -34,6 +35,7 @@ export default function GamesHub({
   const [playingFlutter, setPlayingFlutter] = useState(false)
   const [playingLastStand, setPlayingLastStand] = useState(false)
   const [playingMineWorld, setPlayingMineWorld] = useState(false)
+  const [playingSports, setPlayingSports] = useState(false)
   const [isOwner, setIsOwner] = useState(false)
 
   useEffect(() => {
@@ -112,6 +114,17 @@ export default function GamesHub({
           </button>
 
           <button
+            onClick={() => setPlayingSports(true)}
+            className="flex items-center gap-4 rounded-xl border border-accent/30 bg-black/60 p-4 text-left transition-colors hover:border-accent"
+          >
+            <span className="text-3xl">🏆</span>
+            <span>
+              <span className="block font-semibold text-white">999 Sports</span>
+              <span className="block text-xs text-white/50">Bowling, pool, and more -- pick a sport.</span>
+            </span>
+          </button>
+
+          <button
             onClick={onActivateDestroyMode}
             className="flex items-center gap-4 rounded-xl border border-accent/30 bg-black/60 p-4 text-left transition-colors hover:border-accent"
           >
@@ -174,6 +187,8 @@ export default function GamesHub({
       </AnimatePresence>
 
       <AnimatePresence>{playingMineWorld && <MineWorldGame visitorId={visitorId} onClose={() => setPlayingMineWorld(false)} />}</AnimatePresence>
+
+      <AnimatePresence>{playingSports && <SportsGame visitorId={visitorId} onClose={() => setPlayingSports(false)} />}</AnimatePresence>
 
     </motion.div>
   )

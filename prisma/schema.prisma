@@ -405,6 +405,17 @@ model LastStandScore {
   updatedAt DateTime @updatedAt
 }
 
+// One row per account's personal best pin count in 999 Sports: Bowling.
+// Same guest-exclusion rule as every other persistent feature -- only
+// logged-in accounts get a leaderboard entry.
+model BowlingScore {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  name      String
+  pins      Int
+  updatedAt DateTime @updatedAt
+}
+
 // One row per account's LIFETIME destruction count in "Smash Juice
 // Junkies" -- unlike the other scores above this is cumulative (increments
 // every session) rather than a personal best, since it backs an XP/rank
