@@ -1000,6 +1000,28 @@ export default function MineWorldGame({ visitorId, onClose }: { visitorId: strin
   const [, forceRender] = useState(0)
   const [craftOpen, setCraftOpen] = useState(false)
 
+  // Touch support -- the control scheme above (mousemove targets a tile,
+  // held mousedown mines it) has no touch equivalent by default, so touch
+  // devices get an on-screen d-pad/jump for movement plus a dedicated
+  // world-touch tracked by identifier (so a thumb holding Jump and a thumb
+  // mining a tile don't steal each other's touch). placeModeRef swaps what
+  // that world touch does, standing in for the right-click placing has on
+  // desktop.
+  const [isTouchDevice, setIsTouchDevice] = useState(false)
+  const touchLeftRef = useRef(false)
+  const touchRightRef = useRef(false)
+  const touchJumpRef = useRef(false)
+  const placeModeRef = useRef(false)
+  const [placeModeOn, setPlaceModeOn] = useState(false)
+  const worldTouchIdRef = useRef<number | null>(null)
+
+  // Depth HUD -- measured in tiles below this column's surface, not raw
+  // world-y, so it reads the same near a hill or a valley. Only pushed to
+  // state when the rounded value actually changes so the HUD doesn't force
+  // a React re-render every animation frame.
+  const [depthText, setDepthText] = useState('Surface')
+  const depthDisplayRef = useRef('Surface')
+
   // Regenerates the deterministic baseline from the world's own seed and
   // diffs the live tiles against it -- see computeTileDiffs. Fire-and-
   // forget; a dropped autosave tick isn't worth blocking gameplay over,
@@ -1134,6 +1156,65 @@ export default function MineWorldGame({ visitorId, onClose }: { visitorId: strin
   }, [ready])
 
   useEffect(() => {
+    setIsTouchDevice(typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0))
+  }, [])
+
+  // World-interaction touch -- a tap-and-hold directly on the canvas mines
+  // (or places, in place-mode) the tile under the finger, dragging re-
+  // targets same as a held mouse would. On-screen buttons call
+  // stopPropagation in their own React touch handlers so their presses
+  // never reach these window listeners -- that's what lets one thumb hold
+  // Jump while another thumb is mid-dig. preventDefault here (not passive)
+  // stops the page from scrolling/zooming and keeps the browser from
+  // synthesizing a trailing ghost mousedown/mouseup for this same touch.
+  useEffect(() => {
+    if (!ready) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const updateTargetFromTouch = (touch: Touch) => {
+      const rect = canvas.getBoundingClientRect()
+      mouseRef.current = { x: touch.clientX - rect.left, y: touch.clientY - rect.top }
+    }
+    const onTouchStart = (e: TouchEvent) => {
+      if (worldTouchIdRef.current !== null) return
+      const touch = e.changedTouches[0]
+      if (!touch) return
+      e.preventDefault()
+      worldTouchIdRef.current = touch.identifier
+      updateTargetFromTouch(touch)
+      if (placeModeRef.current) placingRef.current = true
+      else miningRef.current = true
+    }
+    const onTouchMove = (e: TouchEvent) => {
+      for (const touch of Array.from(e.changedTouches)) {
+        if (touch.identifier === worldTouchIdRef.current) {
+          e.preventDefault()
+          updateTargetFromTouch(touch)
+        }
+      }
+    }
+    const onTouchEnd = (e: TouchEvent) => {
+      for (const touch of Array.from(e.changedTouches)) {
+        if (touch.identifier === worldTouchIdRef.current) {
+          worldTouchIdRef.current = null
+          miningRef.current = false
+          placingRef.current = false
+        }
+      }
+    }
+    window.addEventListener('touchstart', onTouchStart, { passive: false })
+    window.addEventListener('touchmove', onTouchMove, { passive: false })
+    window.addEventListener('touchend', onTouchEnd, { passive: false })
+    window.addEventListener('touchcancel', onTouchEnd, { passive: false })
+    return () => {
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('touchend', onTouchEnd)
+      window.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [ready])
+
+  useEffect(() => {
     if (!ready) return
     const canvas = canvasRef.current
     if (!canvas) return
@@ -1155,12 +1236,21 @@ export default function MineWorldGame({ visitorId, onClose }: { visitorId: strin
 
       const keys = keysRef.current
       let inputX = 0
-      if (keys.has('a') || keys.has('arrowleft')) inputX -= 1
-      if (keys.has('d') || keys.has('arrowright')) inputX += 1
-      const wantJump = keys.has(' ') || keys.has('w') || keys.has('arrowup')
+      if (keys.has('a') || keys.has('arrowleft') || touchLeftRef.current) inputX -= 1
+      if (keys.has('d') || keys.has('arrowright') || touchRightRef.current) inputX += 1
+      const wantJump = keys.has(' ') || keys.has('w') || keys.has('arrowup') || touchJumpRef.current
 
       stepPlayerPhysics(world, playerRef.current, inputX, wantJump, dt)
       depthReachedRef.current = Math.max(depthReachedRef.current, Math.floor(playerRef.current.y / TILE_SIZE))
+
+      const playerCol = Math.floor((playerRef.current.x + PLAYER_W / 2) / TILE_SIZE)
+      const surfaceAtCol = world.surfaceY[Math.max(0, Math.min(world.width - 1, playerCol))] || 0
+      const tilesDeep = Math.floor(playerRef.current.y / TILE_SIZE) - surfaceAtCol
+      const nextDepthText = tilesDeep <= 0 ? 'Surface' : `${tilesDeep * 3} ft deep`
+      if (nextDepthText !== depthDisplayRef.current) {
+        depthDisplayRef.current = nextDepthText
+        setDepthText(nextDepthText)
+      }
 
       const camera = cameraRef.current
       const p = playerRef.current
@@ -1237,8 +1327,8 @@ export default function MineWorldGame({ visitorId, onClose }: { visitorId: strin
   const craftables = Object.values(ITEM_DEFS).filter((it) => it.recipe)
 
   return (
-    <div className="fixed inset-0 z-[100] overflow-hidden bg-black" onClick={(e) => e.stopPropagation()}>
-      <canvas ref={canvasRef} className="block" />
+    <div className="fixed inset-0 z-[100] overflow-hidden bg-black [touch-action:none]" onClick={(e) => e.stopPropagation()}>
+      <canvas ref={canvasRef} className="block [touch-action:none]" />
       <button
         onClick={onClose}
         className="fixed top-4 right-4 z-[120] rounded-full border border-accent/50 bg-black/80 px-4 py-2 text-sm text-white transition-colors hover:border-accent"
@@ -1251,6 +1341,91 @@ export default function MineWorldGame({ visitorId, onClose }: { visitorId: strin
       >
         🛠️ Craft
       </button>
+
+      {/* Depth HUD -- "ft" is 3x tiles, a cosmetic unit conversion only
+          (TILE_SIZE itself is unrelated to it), just so the number reads
+          like the genre-standard depth readout instead of a raw tile count. */}
+      <div className="pointer-events-none fixed top-4 left-1/2 z-[110] -translate-x-1/2 rounded-full border border-white/15 bg-black/70 px-4 py-1.5 text-xs font-medium text-white/80 backdrop-blur-sm">
+        {depthText === 'Surface' ? '☀️ Surface' : `⛏️ ${depthText}`}
+      </div>
+
+      {/* Touch controls -- only rendered on touch devices so desktop stays
+          exactly as before. Movement/jump are hold buttons (press state
+          lives in refs, read every frame in the loop); Place is a tap
+          toggle that changes what a world touch does. All three stop
+          propagation so their presses never reach the window-level touch
+          listeners that drive mining/placing on the canvas itself. */}
+      {isTouchDevice && (
+        <>
+          <div className="pointer-events-auto fixed bottom-24 left-4 z-[110] flex items-end gap-3">
+            <button
+              onTouchStart={(e) => {
+                e.stopPropagation()
+                touchLeftRef.current = true
+              }}
+              onTouchEnd={(e) => {
+                e.stopPropagation()
+                touchLeftRef.current = false
+              }}
+              onTouchCancel={(e) => {
+                e.stopPropagation()
+                touchLeftRef.current = false
+              }}
+              className="flex h-16 w-16 select-none items-center justify-center rounded-full border border-white/20 bg-black/60 text-2xl text-white active:bg-white/20 [touch-action:none]"
+            >
+              ◀
+            </button>
+            <button
+              onTouchStart={(e) => {
+                e.stopPropagation()
+                touchRightRef.current = true
+              }}
+              onTouchEnd={(e) => {
+                e.stopPropagation()
+                touchRightRef.current = false
+              }}
+              onTouchCancel={(e) => {
+                e.stopPropagation()
+                touchRightRef.current = false
+              }}
+              className="flex h-16 w-16 select-none items-center justify-center rounded-full border border-white/20 bg-black/60 text-2xl text-white active:bg-white/20 [touch-action:none]"
+            >
+              ▶
+            </button>
+          </div>
+
+          <button
+            onTouchStart={(e) => {
+              e.stopPropagation()
+              touchJumpRef.current = true
+            }}
+            onTouchEnd={(e) => {
+              e.stopPropagation()
+              touchJumpRef.current = false
+            }}
+            onTouchCancel={(e) => {
+              e.stopPropagation()
+              touchJumpRef.current = false
+            }}
+            className="pointer-events-auto fixed right-4 bottom-40 z-[110] flex h-16 w-16 select-none items-center justify-center rounded-full border border-white/20 bg-black/60 text-xs font-semibold text-white active:bg-white/20 [touch-action:none]"
+          >
+            JUMP
+          </button>
+
+          <button
+            onClick={() => {
+              placeModeRef.current = !placeModeRef.current
+              setPlaceModeOn(placeModeRef.current)
+            }}
+            className={`pointer-events-auto fixed right-4 bottom-24 z-[110] flex h-16 w-16 select-none flex-col items-center justify-center rounded-full border text-[11px] font-semibold text-white [touch-action:none] ${
+              placeModeOn ? 'border-accent bg-accent/30' : 'border-white/20 bg-black/60'
+            }`}
+          >
+            <span>{placeModeOn ? '🧱' : '⛏️'}</span>
+            <span>{placeModeOn ? 'Place' : 'Mine'}</span>
+          </button>
+        </>
+      )}
 
       {/* Hotbar -- shows owned items (+ the starting pickaxe always), number
           keys 1-9 or a click select, same visual language as the destroy-
