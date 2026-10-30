@@ -81,7 +81,7 @@ function TileIcon({ type, special }: { type: number; special?: 'none' | 'striped
 }
 
 interface LevelGoal {
-  type: 'color' | 'score'
+  type: 'color' | 'score' | 'jelly'
   color?: number
   amount: number
 }
@@ -90,15 +90,37 @@ interface LevelDef {
   moves: number
   goal: LevelGoal
   reward: number
+  // Scatters this many jelly-covered cells across the board at level
+  // start -- only meaningful for goal.type === 'jelly' levels.
+  jellyCount?: number
 }
 
+// Levels 1-6 are untouched from the original build -- anyone's saved
+// jj-clubhouse-stars/jj-clubhouse-unlocked progress is keyed by array
+// index, so new levels are appended after rather than inserted. Jelly
+// (the new blocker mechanic) is introduced starting at level 10, after
+// the player already knows the base game.
 const LEVELS: LevelDef[] = [
   { moves: 20, goal: { type: 'color', color: 0, amount: 18 }, reward: 40 },
   { moves: 18, goal: { type: 'color', color: 2, amount: 20 }, reward: 45 },
   { moves: 16, goal: { type: 'score', amount: 1200 }, reward: 50 },
   { moves: 18, goal: { type: 'color', color: 4, amount: 24 }, reward: 55 },
   { moves: 15, goal: { type: 'score', amount: 1600 }, reward: 60 },
-  { moves: 16, goal: { type: 'color', color: 1, amount: 26 }, reward: 70 }
+  { moves: 16, goal: { type: 'color', color: 1, amount: 26 }, reward: 70 },
+  { moves: 17, goal: { type: 'color', color: 3, amount: 26 }, reward: 75 },
+  { moves: 14, goal: { type: 'score', amount: 1800 }, reward: 80 },
+  { moves: 16, goal: { type: 'color', color: 5, amount: 28 }, reward: 85 },
+  { moves: 15, goal: { type: 'jelly', amount: 10 }, reward: 90, jellyCount: 10 },
+  { moves: 15, goal: { type: 'color', color: 0, amount: 30 }, reward: 95 },
+  { moves: 13, goal: { type: 'score', amount: 2200 }, reward: 100 },
+  { moves: 16, goal: { type: 'jelly', amount: 14 }, reward: 110, jellyCount: 14 },
+  { moves: 14, goal: { type: 'color', color: 2, amount: 32 }, reward: 115 },
+  { moves: 13, goal: { type: 'score', amount: 2600 }, reward: 120 },
+  { moves: 16, goal: { type: 'jelly', amount: 18 }, reward: 130, jellyCount: 18 },
+  { moves: 13, goal: { type: 'color', color: 4, amount: 34 }, reward: 140 },
+  { moves: 12, goal: { type: 'score', amount: 3000 }, reward: 150 },
+  { moves: 16, goal: { type: 'jelly', amount: 22 }, reward: 160, jellyCount: 22 },
+  { moves: 14, goal: { type: 'color', color: 1, amount: 36 }, reward: 200 }
 ]
 
 interface ClubhouseItem {
@@ -129,14 +151,20 @@ type SpecialKind = 'none' | 'striped-h' | 'striped-v' | 'blast'
 interface Cell {
   color: number
   special: SpecialKind
+  // The obstacle/blocker mechanic: a cell matched or cleared through
+  // while jelly is true just loses the layer (cell stays put) instead of
+  // being removed -- the standard "match ON it, not match IT away" rule
+  // this genre uses for blockers, as opposed to a wall that can't be
+  // matched at all.
+  jelly: boolean
 }
 
 function cellKey(r: number, c: number) {
   return `${r},${c}`
 }
 
-function makeCell(color: number, special: SpecialKind = 'none'): Cell {
-  return { color, special }
+function makeCell(color: number, special: SpecialKind = 'none', jelly = false): Cell {
+  return { color, special, jelly }
 }
 
 function randomTile(): number {
@@ -194,55 +222,38 @@ function previewMatchedCells(grid: Cell[][], size: number): Set<string> {
   return set
 }
 
-function makeGrid(size: number): Cell[][] {
+function makeGrid(size: number, jellyCount = 0): Cell[][] {
   let grid: Cell[][]
   do {
     grid = Array.from({ length: size }, () => Array.from({ length: size }, () => randomCell()))
   } while (hasAnyMatch(grid, size))
+
+  if (jellyCount > 0) {
+    const positions: [number, number][] = []
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) positions.push([r, c])
+    for (let i = positions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[positions[i], positions[j]] = [positions[j], positions[i]]
+    }
+    for (let i = 0; i < Math.min(jellyCount, positions.length); i++) {
+      const [r, c] = positions[i]
+      grid[r][c] = { ...grid[r][c], jelly: true }
+    }
+  }
+
   return grid
 }
 
-// Mutates `grid` in place: clears one pass of matches (creating/triggering
-// special tiles along the way) and drops/refills columns. Returns whether
-// anything changed, so the caller can loop for cascades.
-function performOneResolveStep(grid: Cell[][], size: number) {
-  const { hRuns, vRuns } = findRuns(grid, size)
-  if (hRuns.length === 0 && vRuns.length === 0) {
-    return { changed: false, clearedCounts: {} as Record<number, number>, totalCleared: 0 }
-  }
+// Shared by a normal run-based clear and a combo-swap clear (see
+// comboClearCells below): given a pre-decided clear-set and any cells
+// that survive as new specials instead of being removed, chain-triggers
+// any pre-existing specials caught up in the area (each one expands the
+// clear, which can catch further specials), strips -- rather than
+// removes -- jelly-covered cells on first touch, tallies what actually
+// cleared, and drops/refills the board. Mutates `grid` in place.
+function applyClear(grid: Cell[][], size: number, initialClearSet: Set<string>, survivors: Map<string, SpecialKind>) {
+  const clearSet = new Set(initialClearSet)
 
-  const hCellSet = new Set<string>()
-  hRuns.forEach((run) => run.cells.forEach(([r, c]) => hCellSet.add(cellKey(r, c))))
-  const vCellSet = new Set<string>()
-  vRuns.forEach((run) => run.cells.forEach(([r, c]) => vCellSet.add(cellKey(r, c))))
-
-  const intersections = new Set<string>()
-  for (const key of hCellSet) if (vCellSet.has(key)) intersections.add(key)
-
-  const matchedSet = new Set<string>([...hCellSet, ...vCellSet])
-
-  // Decide which cell (if any) survives each run/intersection as a new
-  // special tile instead of being cleared. Intersections win first.
-  const survivors = new Map<string, SpecialKind>()
-  for (const key of intersections) survivors.set(key, 'blast')
-  for (const run of hRuns) {
-    if (run.cells.length >= 4) {
-      const candidate = run.cells.find(([r, c]) => !survivors.has(cellKey(r, c)))
-      if (candidate) survivors.set(cellKey(candidate[0], candidate[1]), 'striped-h')
-    }
-  }
-  for (const run of vRuns) {
-    if (run.cells.length >= 4) {
-      const candidate = run.cells.find(([r, c]) => !survivors.has(cellKey(r, c)))
-      if (candidate) survivors.set(cellKey(candidate[0], candidate[1]), 'striped-v')
-    }
-  }
-
-  const clearSet = new Set<string>()
-  for (const key of matchedSet) if (!survivors.has(key)) clearSet.add(key)
-
-  // Chain-trigger any pre-existing specials caught up in this clear --
-  // each one expands the clear area, which can catch further specials.
   const queue = [...clearSet]
   const processed = new Set<string>()
   while (queue.length) {
@@ -277,22 +288,34 @@ function performOneResolveStep(grid: Cell[][], size: number) {
 
   const clearedCounts: Record<number, number> = {}
   let totalCleared = 0
+  let jellyStripped = 0
+  const actuallyCleared = new Set<string>()
+
   for (const key of clearSet) {
+    if (survivors.has(key)) continue
     const [r, c] = key.split(',').map(Number)
-    const color = grid[r][c].color
-    clearedCounts[color] = (clearedCounts[color] || 0) + 1
+    const cell = grid[r][c]
+    if (cell.jelly) {
+      grid[r][c] = { ...cell, jelly: false }
+      jellyStripped++
+      continue
+    }
+    clearedCounts[cell.color] = (clearedCounts[cell.color] || 0) + 1
     totalCleared++
+    actuallyCleared.add(key)
   }
 
   for (const [key, special] of survivors) {
     const [r, c] = key.split(',').map(Number)
-    grid[r][c] = makeCell(grid[r][c].color, special)
+    const prev = grid[r][c]
+    if (prev.jelly) jellyStripped++
+    grid[r][c] = makeCell(prev.color, special, false)
   }
 
   for (let col = 0; col < size; col++) {
     const survivingCells: Cell[] = []
     for (let row = 0; row < size; row++) {
-      if (!clearSet.has(cellKey(row, col))) survivingCells.push(grid[row][col])
+      if (!actuallyCleared.has(cellKey(row, col))) survivingCells.push(grid[row][col])
     }
     const missing = size - survivingCells.length
     const refilled = Array.from({ length: missing }, () => randomCell())
@@ -300,7 +323,85 @@ function performOneResolveStep(grid: Cell[][], size: number) {
     for (let row = 0; row < size; row++) grid[row][col] = newCol[row]
   }
 
-  return { changed: true, clearedCounts, totalCleared }
+  return { changed: clearSet.size > 0, clearedCounts, totalCleared, jellyStripped }
+}
+
+// Mutates `grid` in place: clears one pass of matches (creating/triggering
+// special tiles along the way) and drops/refills columns. Returns whether
+// anything changed, so the caller can loop for cascades.
+function performOneResolveStep(grid: Cell[][], size: number) {
+  const { hRuns, vRuns } = findRuns(grid, size)
+  if (hRuns.length === 0 && vRuns.length === 0) {
+    return { changed: false, clearedCounts: {} as Record<number, number>, totalCleared: 0, jellyStripped: 0 }
+  }
+
+  const hCellSet = new Set<string>()
+  hRuns.forEach((run) => run.cells.forEach(([r, c]) => hCellSet.add(cellKey(r, c))))
+  const vCellSet = new Set<string>()
+  vRuns.forEach((run) => run.cells.forEach(([r, c]) => vCellSet.add(cellKey(r, c))))
+
+  const intersections = new Set<string>()
+  for (const key of hCellSet) if (vCellSet.has(key)) intersections.add(key)
+
+  const matchedSet = new Set<string>([...hCellSet, ...vCellSet])
+
+  // Decide which cell (if any) survives each run/intersection as a new
+  // special tile instead of being cleared. Intersections win first.
+  const survivors = new Map<string, SpecialKind>()
+  for (const key of intersections) survivors.set(key, 'blast')
+  for (const run of hRuns) {
+    if (run.cells.length >= 4) {
+      const candidate = run.cells.find(([r, c]) => !survivors.has(cellKey(r, c)))
+      if (candidate) survivors.set(cellKey(candidate[0], candidate[1]), 'striped-h')
+    }
+  }
+  for (const run of vRuns) {
+    if (run.cells.length >= 4) {
+      const candidate = run.cells.find(([r, c]) => !survivors.has(cellKey(r, c)))
+      if (candidate) survivors.set(cellKey(candidate[0], candidate[1]), 'striped-v')
+    }
+  }
+
+  return applyClear(grid, size, matchedSet, survivors)
+}
+
+// The genre's signature "combo" move: swapping two already-special tiles
+// together always triggers (no need to also form a new run) and clears a
+// bigger area than either tile's own effect alone. Centered on the swap's
+// target cell (r, c) since both tiles land adjacent to it either way.
+function comboClearCells(r: number, c: number, size: number, a: SpecialKind, b: SpecialKind): Set<string> {
+  const set = new Set<string>()
+  const addRow = (rr: number) => {
+    for (let cc = 0; cc < size; cc++) set.add(cellKey(rr, cc))
+  }
+  const addCol = (cc: number) => {
+    for (let rr = 0; rr < size; rr++) set.add(cellKey(rr, cc))
+  }
+  const isStriped = (k: SpecialKind) => k === 'striped-h' || k === 'striped-v'
+
+  if (a === 'blast' && b === 'blast') {
+    for (let dr = -2; dr <= 2; dr++) {
+      for (let dc = -2; dc <= 2; dc++) {
+        const rr = r + dr
+        const cc = c + dc
+        if (rr >= 0 && rr < size && cc >= 0 && cc < size) set.add(cellKey(rr, cc))
+      }
+    }
+  } else if (isStriped(a) && isStriped(b)) {
+    addRow(r)
+    addCol(c)
+  } else if (isStriped(a) || isStriped(b)) {
+    for (let dr = -1; dr <= 1; dr++) {
+      const rr = r + dr
+      if (rr >= 0 && rr < size) addRow(rr)
+    }
+    for (let dc = -1; dc <= 1; dc++) {
+      const cc = c + dc
+      if (cc >= 0 && cc < size) addCol(cc)
+    }
+  }
+
+  return set
 }
 
 function resolveBoard(grid: Cell[][], size: number) {
@@ -308,18 +409,20 @@ function resolveBoard(grid: Cell[][], size: number) {
   const clearedCounts: Record<number, number> = {}
   let totalCleared = 0
   let comboLevels = 0
+  let jellyStripped = 0
 
   while (true) {
     const step = performOneResolveStep(current, size)
     if (!step.changed) break
     comboLevels++
     totalCleared += step.totalCleared
+    jellyStripped += step.jellyStripped
     for (const [color, count] of Object.entries(step.clearedCounts)) {
       clearedCounts[Number(color)] = (clearedCounts[Number(color)] || 0) + count
     }
   }
 
-  return { finalGrid: current, clearedCounts, totalCleared, comboLevels }
+  return { finalGrid: current, clearedCounts, totalCleared, comboLevels, jellyStripped }
 }
 
 type Status = 'intro' | 'playing' | 'levelWin' | 'levelLose' | 'clubhouse'
@@ -388,7 +491,7 @@ export default function ClubhouseGame({ onClose }: { onClose: () => void }) {
   const startLevel = (idx: number) => {
     const level = LEVELS[idx]
     setLevelIndex(idx)
-    setGrid(makeGrid(GRID_SIZE))
+    setGrid(makeGrid(GRID_SIZE, level.jellyCount || 0))
     setSelected(null)
     setMovesLeft(level.moves)
     setScore(0)
@@ -415,15 +518,22 @@ export default function ClubhouseGame({ onClose }: { onClose: () => void }) {
       return
     }
 
+    const fromCell = grid[selected.row][selected.col]
+    const toCell = grid[row][col]
+    // Swapping two already-special tiles together is always valid and
+    // triggers the bonus combo clear below, regardless of whether it also
+    // happens to form a new run -- that's the point of the move.
+    const isComboSwap = fromCell.special !== 'none' && toCell.special !== 'none'
+
     const trial = grid.map((r) => r.map((cell) => ({ ...cell })))
     const tmp = trial[selected.row][selected.col]
     trial[selected.row][selected.col] = trial[row][col]
     trial[row][col] = tmp
 
-    const firstMatches = previewMatchedCells(trial, GRID_SIZE)
+    const firstMatches = isComboSwap ? comboClearCells(row, col, GRID_SIZE, fromCell.special, toCell.special) : previewMatchedCells(trial, GRID_SIZE)
     setSelected(null)
 
-    if (firstMatches.size === 0) {
+    if (!isComboSwap && firstMatches.size === 0) {
       sfx.reject()
       setShakeCell(`${row},${col}`)
       setTimeout(() => setShakeCell(null), 250)
@@ -438,19 +548,46 @@ export default function ClubhouseGame({ onClose }: { onClose: () => void }) {
     setMovesLeft(movesNow)
 
     setTimeout(() => {
-      const { finalGrid, clearedCounts, totalCleared, comboLevels } = resolveBoard(trial, GRID_SIZE)
+      let finalGrid: Cell[][]
+      let clearedCounts: Record<number, number>
+      let totalCleared: number
+      let comboLevels: number
+      let jellyStripped: number
+
+      if (isComboSwap) {
+        const comboStats = applyClear(trial, GRID_SIZE, firstMatches, new Map())
+        const rest = resolveBoard(trial, GRID_SIZE)
+        finalGrid = rest.finalGrid
+        totalCleared = comboStats.totalCleared + rest.totalCleared
+        jellyStripped = comboStats.jellyStripped + rest.jellyStripped
+        comboLevels = 1 + rest.comboLevels
+        clearedCounts = { ...comboStats.clearedCounts }
+        for (const [color, count] of Object.entries(rest.clearedCounts)) {
+          clearedCounts[Number(color)] = (clearedCounts[Number(color)] || 0) + count
+        }
+      } else {
+        const result = resolveBoard(trial, GRID_SIZE)
+        finalGrid = result.finalGrid
+        clearedCounts = result.clearedCounts
+        totalCleared = result.totalCleared
+        comboLevels = result.comboLevels
+        jellyStripped = result.jellyStripped
+      }
+
       setGrid(finalGrid)
       setFlashingCells(new Set())
-      if (comboLevels > 1) sfx.combo()
+      if (isComboSwap || comboLevels > 1) sfx.combo()
 
       const level = LEVELS[levelIndex]
-      const points = totalCleared * 10 + Math.max(0, comboLevels - 1) * 25
+      const points = totalCleared * 10 + Math.max(0, comboLevels - 1) * 25 + jellyStripped * 15
       const newScore = score + points
       setScore(newScore)
 
       let newProgress = goalProgress
       if (level.goal.type === 'color') {
         newProgress = goalProgress + (clearedCounts[level.goal.color as number] || 0)
+      } else if (level.goal.type === 'jelly') {
+        newProgress = goalProgress + jellyStripped
       } else {
         newProgress = newScore
       }
@@ -646,6 +783,8 @@ export default function ClubhouseGame({ onClose }: { onClose: () => void }) {
                 <span className="inline-block h-3 w-3 rounded-full align-middle" style={{ background: TILE_DEFS[level.goal.color as number].color }} />{' '}
                 ({goalProgress}/{level.goal.amount})
               </>
+            ) : level.goal.type === 'jelly' ? (
+              <>🧊 Clear all the jelly ({goalProgress}/{level.goal.amount})</>
             ) : (
               <>Reach {level.goal.amount} points ({goalProgress}/{level.goal.amount})</>
             )}
@@ -665,12 +804,13 @@ export default function ClubhouseGame({ onClose }: { onClose: () => void }) {
                   <button
                     key={key}
                     onClick={() => handleTileTap(row, col)}
-                    className={`flex h-9 w-9 items-center justify-center rounded-md border transition-transform sm:h-10 sm:w-10 ${
+                    className={`relative flex h-9 w-9 items-center justify-center rounded-md border transition-transform sm:h-10 sm:w-10 ${
                       isSelected ? 'scale-110 border-white bg-white/10' : 'border-white/10 bg-black/30'
                     } ${isFlashing ? 'brightness-150' : ''} ${isShaking ? 'animate-pulse' : ''} ${
                       cell.special !== 'none' ? 'shadow-[0_0_8px_rgba(255,255,255,0.6)]' : ''
                     }`}
                   >
+                    {cell.jelly && <span className="pointer-events-none absolute inset-0 rounded-md border-2 border-cyan-300/70 bg-cyan-400/20" />}
                     <TileIcon type={cell.color} special={cell.special} />
                   </button>
                 )
