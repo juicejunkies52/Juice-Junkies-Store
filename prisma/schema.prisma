@@ -416,6 +416,17 @@ model BowlingScore {
   updatedAt DateTime @updatedAt
 }
 
+// One row per account's personal best balls-sunk count in 999 Sports:
+// Pool (arcade mode). Same guest-exclusion rule as every other
+// persistent score.
+model PoolScore {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  name      String
+  sunk      Int
+  updatedAt DateTime @updatedAt
+}
+
 // One row per account's LIFETIME destruction count in "Smash Juice
 // Junkies" -- unlike the other scores above this is cumulative (increments
 // every session) rather than a personal best, since it backs an XP/rank

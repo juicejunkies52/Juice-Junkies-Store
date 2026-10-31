@@ -2,16 +2,18 @@
 
 import { useState } from 'react'
 import BowlingGame from './BowlingGame'
+import PoolGame from './PoolGame'
 
 // Wii-Sports-style hub: one Games Hub entry holding multiple sport modes
-// instead of a separate top-level card per sport. Bowling is the only
-// playable mode for now; Pool is a visible "Coming soon" placeholder so
-// the menu shape is already right when that build starts.
+// instead of a separate top-level card per sport.
 export default function SportsGame({ onClose }: { visitorId: string; onClose: () => void }) {
-  const [activeSport, setActiveSport] = useState<'menu' | 'bowling'>('menu')
+  const [activeSport, setActiveSport] = useState<'menu' | 'bowling' | 'pool'>('menu')
 
   if (activeSport === 'bowling') {
     return <BowlingGame onBack={() => setActiveSport('menu')} onClose={onClose} />
+  }
+  if (activeSport === 'pool') {
+    return <PoolGame onBack={() => setActiveSport('menu')} onClose={onClose} />
   }
 
   return (
@@ -39,13 +41,16 @@ export default function SportsGame({ onClose }: { visitorId: string; onClose: ()
             </span>
           </button>
 
-          <div className="flex items-center gap-4 rounded-xl border border-white/10 bg-black/40 p-4 text-left opacity-50">
+          <button
+            onClick={() => setActiveSport('pool')}
+            className="flex items-center gap-4 rounded-xl border border-accent/30 bg-black/60 p-4 text-left transition-colors hover:border-accent"
+          >
             <span className="text-3xl">🎱</span>
             <span>
-              <span className="block font-semibold text-white">Pool -- Coming soon</span>
-              <span className="block text-xs text-white/50">Sink as many balls as you can.</span>
+              <span className="block font-semibold text-white">Pool</span>
+              <span className="block text-xs text-white/50">Drag back and release to strike the cue ball -- sink as many as you can.</span>
             </span>
-          </div>
+          </button>
         </div>
       </div>
     </div>
