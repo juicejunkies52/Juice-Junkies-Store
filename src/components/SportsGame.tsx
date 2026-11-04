@@ -3,17 +3,21 @@
 import { useState } from 'react'
 import BowlingGame from './BowlingGame'
 import PoolGame from './PoolGame'
+import EightBallGame from './EightBallGame'
 
 // Wii-Sports-style hub: one Games Hub entry holding multiple sport modes
 // instead of a separate top-level card per sport.
 export default function SportsGame({ onClose }: { visitorId: string; onClose: () => void }) {
-  const [activeSport, setActiveSport] = useState<'menu' | 'bowling' | 'pool'>('menu')
+  const [activeSport, setActiveSport] = useState<'menu' | 'bowling' | 'pool' | 'eightball'>('menu')
 
   if (activeSport === 'bowling') {
     return <BowlingGame onBack={() => setActiveSport('menu')} onClose={onClose} />
   }
   if (activeSport === 'pool') {
     return <PoolGame onBack={() => setActiveSport('menu')} onClose={onClose} />
+  }
+  if (activeSport === 'eightball') {
+    return <EightBallGame onBack={() => setActiveSport('menu')} onClose={onClose} />
   }
 
   return (
@@ -47,8 +51,19 @@ export default function SportsGame({ onClose }: { visitorId: string; onClose: ()
           >
             <span className="text-3xl">🎱</span>
             <span>
-              <span className="block font-semibold text-white">Pool</span>
+              <span className="block font-semibold text-white">Pool: Arcade</span>
               <span className="block text-xs text-white/50">Drag back and release to strike the cue ball -- sink as many as you can.</span>
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveSport('eightball')}
+            className="flex items-center gap-4 rounded-xl border border-accent/30 bg-black/60 p-4 text-left transition-colors hover:border-accent"
+          >
+            <span className="text-3xl">🎯</span>
+            <span>
+              <span className="block font-semibold text-white">Pool: 8-Ball</span>
+              <span className="block text-xs text-white/50">Real 8-ball rules -- local 2-player or play online with a friend.</span>
             </span>
           </button>
         </div>

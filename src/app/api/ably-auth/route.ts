@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
   // Small allowlist rather than letting the client name arbitrary channel
   // namespaces -- one entry per co-op mini-game that uses this room system.
-  const game = (['laststand', 'destroy'] as const).includes(gameParam as 'laststand' | 'destroy')
+  const game = (['laststand', 'destroy', 'pool'] as const).includes(gameParam as 'laststand' | 'destroy' | 'pool')
     ? gameParam
     : 'laststand'
 
