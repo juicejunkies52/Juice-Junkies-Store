@@ -67,6 +67,41 @@ interface ShotResult {
   assignedGroup: Group
 }
 
+// The genre-standard "ghost line" while aiming: a single straight ray from
+// the cue ball in the travel direction out to the first thing it would
+// actually hit -- another ball or a rail. Not a full physics prediction
+// (no bounce continuation past that first contact), just nearest-hit
+// geometry, recomputed fresh every frame while dragging.
+function castTrajectory(
+  originX: number,
+  originY: number,
+  dirX: number,
+  dirY: number,
+  others: { x: number; y: number }[],
+  table: Table,
+  ballRadius: number
+): { x: number; y: number } {
+  let nearest = Math.max(table.right - table.left, table.bottom - table.top) * 1.5
+  if (dirX > 0.0001) nearest = Math.min(nearest, (table.right - ballRadius - originX) / dirX)
+  if (dirX < -0.0001) nearest = Math.min(nearest, (table.left + ballRadius - originX) / dirX)
+  if (dirY > 0.0001) nearest = Math.min(nearest, (table.bottom - ballRadius - originY) / dirY)
+  if (dirY < -0.0001) nearest = Math.min(nearest, (table.top + ballRadius - originY) / dirY)
+
+  for (const b of others) {
+    const ox = originX - b.x
+    const oy = originY - b.y
+    const bq = 2 * (dirX * ox + dirY * oy)
+    const combined = ballRadius * 2
+    const c = ox * ox + oy * oy - combined * combined
+    const disc = bq * bq - 4 * c
+    if (disc < 0) continue
+    const t = (-bq - Math.sqrt(disc)) / 2
+    if (t > 0 && t < nearest) nearest = t
+  }
+
+  return { x: originX + dirX * nearest, y: originY + dirY * nearest }
+}
+
 function groupOf(n: number): Group {
   if (n <= 0 || n === 8) return null
   return n <= 7 ? 'solids' : 'stripes'
@@ -123,6 +158,8 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
   const [groups, setGroups] = useState<[Group, Group]>([null, null])
   const [currentPlayer, setCurrentPlayer] = useState<0 | 1>(0)
   const [isDragging, setIsDragging] = useState(false)
+  const [dragPower, setDragPower] = useState(0)
+  const [sunkNumbers, setSunkNumbers] = useState<Set<number>>(new Set())
   // Mirrors phaseRef.current === 'placing' for the ball-in-hand hint text
   // -- phaseRef itself is a ref precisely so the render-loop closure always
   // sees the latest value, but that means reading it directly in JSX is
@@ -258,6 +295,7 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
   const applyShotResult = useCallback(
     (res: ShotResult) => {
       const shooter = currentPlayerRef.current
+      setSunkNumbers(new Set(ballsRef.current.filter((e) => e.sunk && !e.isCue).map((e) => e.number)))
       if (res.assignedGroup && !playersRef.current[shooter]) {
         playersRef.current[shooter] = res.assignedGroup
         playersRef.current[shooter === 0 ? 1 : 0] = res.assignedGroup === 'solids' ? 'stripes' : 'solids'
@@ -529,22 +567,54 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
         const dy = drag.curY - drag.startY
         const dist = Math.min(MAX_DRAG, Math.hypot(dx, dy))
         const power = dist / MAX_DRAG
-        const angle = Math.atan2(-dy, -dx)
-        const len = 40 + power * 140
-        const ex = cue.position.x + Math.cos(angle) * len
-        const ey = cue.position.y + Math.sin(angle) * len
-        const r = Math.round(255 * power)
-        const g = Math.round(255 * (1 - power * 0.5))
-        ctx.strokeStyle = `rgb(${r},${g},60)`
-        ctx.lineWidth = 4
+        setDragPower(power)
+        const aimAngle = Math.atan2(-dy, -dx)
+        const dirX = Math.cos(aimAngle)
+        const dirY = Math.sin(aimAngle)
+
+        if (tbl) {
+          const others = ballsRef.current.filter((e) => !e.isCue && !e.sunk).map((e) => ({ x: e.body.position.x, y: e.body.position.y }))
+          const hit = castTrajectory(cue.position.x, cue.position.y, dirX, dirY, others, tbl, BALL_RADIUS)
+          ctx.save()
+          ctx.setLineDash([6, 6])
+          ctx.strokeStyle = 'rgba(255,255,255,0.55)'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.moveTo(cue.position.x, cue.position.y)
+          ctx.lineTo(hit.x, hit.y)
+          ctx.stroke()
+          ctx.restore()
+          ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.arc(hit.x, hit.y, BALL_RADIUS * 0.6, 0, Math.PI * 2)
+          ctx.stroke()
+        }
+
+        // Cue stick -- pulled back opposite the travel direction, gap and
+        // length both growing with power so a hard shot visibly winds up.
+        const gap = 16 + power * 24
+        const stickLen = 90 + power * 70
+        const pbX = -dirX
+        const pbY = -dirY
+        const tipX = cue.position.x + pbX * gap
+        const tipY = cue.position.y + pbY * gap
+        const buttX = cue.position.x + pbX * (gap + stickLen)
+        const buttY = cue.position.y + pbY * (gap + stickLen)
+        ctx.strokeStyle = '#b4895c'
+        ctx.lineWidth = 5
+        ctx.lineCap = 'round'
         ctx.beginPath()
-        ctx.moveTo(cue.position.x, cue.position.y)
-        ctx.lineTo(ex, ey)
+        ctx.moveTo(tipX, tipY)
+        ctx.lineTo(buttX, buttY)
         ctx.stroke()
-        ctx.fillStyle = `rgb(${r},${g},60)`
+        ctx.strokeStyle = '#f0e6d2'
+        ctx.lineWidth = 5
+        ctx.lineCap = 'round'
         ctx.beginPath()
-        ctx.arc(ex, ey, 6, 0, Math.PI * 2)
-        ctx.fill()
+        ctx.moveTo(tipX, tipY)
+        ctx.lineTo(tipX + pbX * 10, tipY + pbY * 10)
+        ctx.stroke()
       }
 
       if (phaseRef.current === 'placing' && cue) {
@@ -632,6 +702,7 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
             for (const entry of ballsRef.current) {
               if (!data.balls.some((b) => b.number === entry.number && b.isCue === entry.isCue)) entry.sunk = true
             }
+            setSunkNumbers(new Set(ballsRef.current.filter((e) => e.sunk && !e.isCue).map((e) => e.number)))
             currentPlayerRef.current = data.currentPlayer
             setCurrentPlayer(data.currentPlayer)
             playersRef.current = data.groups
@@ -768,6 +839,7 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
     setWinReason(null)
     phaseRef.current = 'ready'
     setIsPlacing(false)
+    setSunkNumbers(new Set())
   }
 
   const groupLabel = (g: Group) => (g === 'solids' ? 'Solids' : g === 'stripes' ? 'Stripes' : 'Open table')
@@ -803,6 +875,33 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
         {mpRole === 'solo' ? `Player ${currentPlayer + 1}` : myTurn ? 'Your turn' : `Waiting on ${mpRole === 'host' ? 'guest' : 'host'}`} &middot; {groupLabel(groups[currentPlayer])}
         {mpRole !== 'solo' && <span className="ml-2 text-white/40">(you: {mpRole === 'host' ? 'Player 1' : 'Player 2'})</span>}
       </div>
+
+      {groups[currentPlayer] && (
+        <div className="pointer-events-none fixed top-[5.5rem] left-1/2 z-[110] flex -translate-x-1/2 gap-1 rounded-full border border-white/10 bg-black/60 px-3 py-1">
+          {(groups[currentPlayer] === 'solids' ? [1, 2, 3, 4, 5, 6, 7] : [9, 10, 11, 12, 13, 14, 15]).map((n) => (
+            <span
+              key={n}
+              className="h-3 w-3 rounded-full border border-black/30"
+              style={{ background: sunkNumbers.has(n) ? 'rgba(255,255,255,0.15)' : ballColor(n), opacity: sunkNumbers.has(n) ? 0.35 : 1 }}
+            />
+          ))}
+        </div>
+      )}
+
+      {isDragging && (
+        <div className="pointer-events-none fixed top-1/2 right-6 z-[110] flex -translate-y-1/2 flex-col items-center gap-1">
+          <span className="text-[10px] font-medium text-white/50">Power</span>
+          <div className="flex h-40 w-4 flex-col-reverse overflow-hidden rounded-full border border-white/20 bg-black/50">
+            <div
+              className="w-full rounded-full transition-[height]"
+              style={{
+                height: `${Math.round(dragPower * 100)}%`,
+                background: `linear-gradient(to top, #39ff14, rgb(${Math.round(255 * dragPower)},${Math.round(255 * (1 - dragPower * 0.5))},60))`
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {!gameOver && !isDragging && !isPlacing && myTurn && (
         <div className="pointer-events-none fixed bottom-10 left-1/2 z-[110] -translate-x-1/2 text-xs text-white/40">

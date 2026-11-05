@@ -42,6 +42,41 @@ interface BallEntry {
 type ShotPhase = 'ready' | 'dragging' | 'rolling' | 'settling' | 'ended'
 type EndReason = 'scratch' | 'strikesOut' | 'cleared' | null
 
+// The genre-standard "ghost line" while aiming: a single straight ray from
+// the cue ball in the travel direction out to the first thing it would
+// actually hit -- another ball or a rail. Not a full physics prediction
+// (no bounce continuation past that first contact), just nearest-hit
+// geometry, recomputed fresh every frame while dragging.
+function castTrajectory(
+  originX: number,
+  originY: number,
+  dirX: number,
+  dirY: number,
+  others: { x: number; y: number }[],
+  table: Table,
+  ballRadius: number
+): { x: number; y: number } {
+  let nearest = Math.max(table.right - table.left, table.bottom - table.top) * 1.5
+  if (dirX > 0.0001) nearest = Math.min(nearest, (table.right - ballRadius - originX) / dirX)
+  if (dirX < -0.0001) nearest = Math.min(nearest, (table.left + ballRadius - originX) / dirX)
+  if (dirY > 0.0001) nearest = Math.min(nearest, (table.bottom - ballRadius - originY) / dirY)
+  if (dirY < -0.0001) nearest = Math.min(nearest, (table.top + ballRadius - originY) / dirY)
+
+  for (const b of others) {
+    const ox = originX - b.x
+    const oy = originY - b.y
+    const bq = 2 * (dirX * ox + dirY * oy)
+    const combined = ballRadius * 2
+    const c = ox * ox + oy * oy - combined * combined
+    const disc = bq * bq - 4 * c
+    if (disc < 0) continue
+    const t = (-bq - Math.sqrt(disc)) / 2
+    if (t > 0 && t < nearest) nearest = t
+  }
+
+  return { x: originX + dirX * nearest, y: originY + dirY * nearest }
+}
+
 export default function PoolGame({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const engineRef = useRef<Matter.Engine | null>(null)
@@ -62,6 +97,7 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
   const [strikesLeft, setStrikesLeft] = useState(STRIKES_TOTAL)
   const [sunkCount, setSunkCount] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
+  const [dragPower, setDragPower] = useState(0)
   const [gameOver, setGameOver] = useState(false)
   const [endReason, setEndReason] = useState<EndReason>(null)
   const [personalBest, setPersonalBest] = useState<number | null>(null)
@@ -320,22 +356,52 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
         const dy = drag.curY - drag.startY
         const dist = Math.min(MAX_DRAG, Math.hypot(dx, dy))
         const power = dist / MAX_DRAG
-        const angle = Math.atan2(-dy, -dx)
-        const len = 40 + power * 140
-        const ex = cue.position.x + Math.cos(angle) * len
-        const ey = cue.position.y + Math.sin(angle) * len
-        const r = Math.round(255 * power)
-        const g = Math.round(255 * (1 - power * 0.5))
-        ctx.strokeStyle = `rgb(${r},${g},60)`
-        ctx.lineWidth = 4
+        setDragPower(power)
+        const aimAngle = Math.atan2(-dy, -dx)
+        const dirX = Math.cos(aimAngle)
+        const dirY = Math.sin(aimAngle)
+
+        const others = ballsRef.current.filter((e) => !e.isCue && !e.sunk).map((e) => ({ x: e.body.position.x, y: e.body.position.y }))
+        const hit = castTrajectory(cue.position.x, cue.position.y, dirX, dirY, others, tbl, BALL_RADIUS)
+        ctx.save()
+        ctx.setLineDash([6, 6])
+        ctx.strokeStyle = 'rgba(255,255,255,0.55)'
+        ctx.lineWidth = 2
         ctx.beginPath()
         ctx.moveTo(cue.position.x, cue.position.y)
-        ctx.lineTo(ex, ey)
+        ctx.lineTo(hit.x, hit.y)
         ctx.stroke()
-        ctx.fillStyle = `rgb(${r},${g},60)`
+        ctx.restore()
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+        ctx.lineWidth = 2
         ctx.beginPath()
-        ctx.arc(ex, ey, 6, 0, Math.PI * 2)
-        ctx.fill()
+        ctx.arc(hit.x, hit.y, BALL_RADIUS * 0.6, 0, Math.PI * 2)
+        ctx.stroke()
+
+        // Cue stick -- pulled back opposite the travel direction, gap and
+        // length both growing with power so a hard shot visibly winds up.
+        const gap = 16 + power * 24
+        const stickLen = 90 + power * 70
+        const pbX = -dirX
+        const pbY = -dirY
+        const tipX = cue.position.x + pbX * gap
+        const tipY = cue.position.y + pbY * gap
+        const buttX = cue.position.x + pbX * (gap + stickLen)
+        const buttY = cue.position.y + pbY * (gap + stickLen)
+        ctx.strokeStyle = '#b4895c'
+        ctx.lineWidth = 5
+        ctx.lineCap = 'round'
+        ctx.beginPath()
+        ctx.moveTo(tipX, tipY)
+        ctx.lineTo(buttX, buttY)
+        ctx.stroke()
+        ctx.strokeStyle = '#f0e6d2'
+        ctx.lineWidth = 5
+        ctx.lineCap = 'round'
+        ctx.beginPath()
+        ctx.moveTo(tipX, tipY)
+        ctx.lineTo(tipX + pbX * 10, tipY + pbY * 10)
+        ctx.stroke()
       }
 
       rafRef.current = requestAnimationFrame(loop)
@@ -477,6 +543,21 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
       <div className="pointer-events-none fixed top-4 left-1/2 z-[110] -translate-x-1/2 rounded-full border border-white/15 bg-black/70 px-4 py-1.5 text-xs font-medium text-white/80 backdrop-blur-sm">
         🎱 Sunk: {sunkCount}/15 &middot; Strikes left: {strikesLeft}
       </div>
+
+      {isDragging && (
+        <div className="pointer-events-none fixed top-1/2 right-6 z-[110] flex -translate-y-1/2 flex-col items-center gap-1">
+          <span className="text-[10px] font-medium text-white/50">Power</span>
+          <div className="flex h-40 w-4 flex-col-reverse overflow-hidden rounded-full border border-white/20 bg-black/50">
+            <div
+              className="w-full rounded-full transition-[height]"
+              style={{
+                height: `${Math.round(dragPower * 100)}%`,
+                background: `linear-gradient(to top, #39ff14, rgb(${Math.round(255 * dragPower)},${Math.round(255 * (1 - dragPower * 0.5))},60))`
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {!gameOver && !isDragging && (
         <div className="pointer-events-none fixed bottom-10 left-1/2 z-[110] -translate-x-1/2 text-xs text-white/40">
