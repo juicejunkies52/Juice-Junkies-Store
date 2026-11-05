@@ -742,6 +742,185 @@ interface PlayerPhysics {
   onGround: boolean
 }
 
+// ---- Glow Bats ------------------------------------------------------------
+// First in-world creature: a small flying mob that wanders underground and
+// flees the player when they get close. Ephemeral (respawned fresh on every
+// world load, not persisted) and not wired into the /api/creatures/catch
+// meta-system -- that integration is a deliberately separate future pass.
+interface Bat {
+  id: number
+  x: number
+  y: number
+  vx: number
+  vy: number
+  state: 'wander' | 'flee'
+  wanderTargetX: number
+  wanderTargetY: number
+  nextDecisionAt: number
+}
+
+const BAT_SIZE = 10
+const BAT_COUNT = 8
+const BAT_FLEE_RADIUS = 160
+const BAT_WANDER_SPEED = 40
+const BAT_FLEE_SPEED = 140
+const BAT_WANDER_RADIUS = 90
+
+// Rejection-samples open-air pockets below the surface -- same spirit as
+// findSpawnPoint, but scattered across the whole map instead of one column,
+// and bailing out on a bounded attempt count rather than scanning everything.
+function spawnBats(world: MineWorldData): Bat[] {
+  const bats: Bat[] = []
+  let attempts = 0
+  let id = 0
+  while (bats.length < BAT_COUNT && attempts < BAT_COUNT * 40) {
+    attempts++
+    const tx = Math.floor(Math.random() * world.width)
+    const surface = world.surfaceY[tx] || 0
+    const minTy = surface + 3
+    const maxTy = world.height - 3
+    if (minTy >= maxTy) continue
+    const ty = minTy + Math.floor(Math.random() * (maxTy - minTy))
+    if (isSolidAt(world, tx, ty)) continue
+    if (
+      isSolidAt(world, tx - 1, ty) &&
+      isSolidAt(world, tx + 1, ty) &&
+      isSolidAt(world, tx, ty - 1) &&
+      isSolidAt(world, tx, ty + 1)
+    ) continue
+    const x = tx * TILE_SIZE + TILE_SIZE / 2
+    const y = ty * TILE_SIZE + TILE_SIZE / 2
+    bats.push({ id: id++, x, y, vx: 0, vy: 0, state: 'wander', wanderTargetX: x, wanderTargetY: y, nextDecisionAt: 0 })
+  }
+  return bats
+}
+
+// Flee-or-wander state machine, eased velocity for a floaty flight feel,
+// and a per-axis tile-solid check before committing movement so bats never
+// clip through walls. `now`/`dt` come from the same rAF clock the player
+// physics step uses.
+function updateBats(world: MineWorldData, bats: Bat[], player: PlayerPhysics, now: number, dt: number) {
+  const playerCx = player.x + PLAYER_W / 2
+  const playerCy = player.y + PLAYER_H / 2
+  const half = BAT_SIZE / 2
+
+  for (const bat of bats) {
+    const dxP = bat.x - playerCx
+    const dyP = bat.y - playerCy
+    const distP = Math.hypot(dxP, dyP)
+
+    let desiredVx: number
+    let desiredVy: number
+
+    if (distP < BAT_FLEE_RADIUS) {
+      bat.state = 'flee'
+      const away = distP > 0.001 ? 1 / distP : 0
+      desiredVx = dxP * away * BAT_FLEE_SPEED
+      desiredVy = dyP * away * BAT_FLEE_SPEED
+      bat.nextDecisionAt = now // re-pick a wander target the moment it stops fleeing
+    } else {
+      if (bat.state === 'flee') bat.state = 'wander'
+      const distT = Math.hypot(bat.wanderTargetX - bat.x, bat.wanderTargetY - bat.y)
+      if (distT < 8 || now >= bat.nextDecisionAt) {
+        const col = Math.max(0, Math.min(world.width - 1, Math.floor(bat.x / TILE_SIZE)))
+        const surface = world.surfaceY[col] || 0
+        const minY = (surface + 3) * TILE_SIZE
+        const maxY = (world.height - 3) * TILE_SIZE
+        const angle = Math.random() * Math.PI * 2
+        const radius = BAT_WANDER_RADIUS * (0.4 + Math.random() * 0.6)
+        bat.wanderTargetX = Math.max(TILE_SIZE, Math.min((world.width - 1) * TILE_SIZE, bat.x + Math.cos(angle) * radius))
+        bat.wanderTargetY = Math.max(minY, Math.min(maxY, bat.y + Math.sin(angle) * radius))
+        bat.nextDecisionAt = now + 1000 + Math.random() * 2000
+      }
+      const tdx = bat.wanderTargetX - bat.x
+      const tdy = bat.wanderTargetY - bat.y
+      const tdist = Math.hypot(tdx, tdy) || 1
+      desiredVx = (tdx / tdist) * BAT_WANDER_SPEED
+      desiredVy = (tdy / tdist) * BAT_WANDER_SPEED
+    }
+
+    const ease = Math.min(1, dt * 4)
+    bat.vx += (desiredVx - bat.vx) * ease
+    bat.vy += (desiredVy - bat.vy) * ease
+
+    const nextX = bat.x + bat.vx * dt
+    const nextY = bat.y + bat.vy * dt
+
+    const xClear =
+      !isSolidAt(world, Math.floor(nextX / TILE_SIZE), Math.floor(bat.y / TILE_SIZE)) &&
+      !isSolidAt(world, Math.floor(nextX / TILE_SIZE), Math.floor((bat.y - half) / TILE_SIZE)) &&
+      !isSolidAt(world, Math.floor(nextX / TILE_SIZE), Math.floor((bat.y + half) / TILE_SIZE))
+    if (xClear) {
+      bat.x = nextX
+    } else {
+      bat.vx = 0
+      bat.wanderTargetX = bat.x
+      bat.nextDecisionAt = now
+    }
+
+    const yClear =
+      !isSolidAt(world, Math.floor(bat.x / TILE_SIZE), Math.floor(nextY / TILE_SIZE)) &&
+      !isSolidAt(world, Math.floor((bat.x - half) / TILE_SIZE), Math.floor(nextY / TILE_SIZE)) &&
+      !isSolidAt(world, Math.floor((bat.x + half) / TILE_SIZE), Math.floor(nextY / TILE_SIZE))
+    if (yClear) {
+      bat.y = nextY
+    } else {
+      bat.vy = 0
+      bat.wanderTargetY = bat.y
+      bat.nextDecisionAt = now
+    }
+
+    // Belt-and-suspenders clamp: keeps bats underground and in-bounds even
+    // if a wander target or a solid-check edge case ever pushed one astray.
+    const col = Math.max(0, Math.min(world.width - 1, Math.floor(bat.x / TILE_SIZE)))
+    const surface = world.surfaceY[col] || 0
+    const minY = (surface + 2) * TILE_SIZE
+    const maxY = (world.height - 2) * TILE_SIZE
+    if (bat.y < minY) {
+      bat.y = minY
+      bat.vy = Math.abs(bat.vy)
+    }
+    if (bat.y > maxY) {
+      bat.y = maxY
+      bat.vy = -Math.abs(bat.vy)
+    }
+    bat.x = Math.max(TILE_SIZE, Math.min((world.width - 1) * TILE_SIZE, bat.x))
+  }
+}
+
+// Small glow-accented wing shapes, camera-culled the same way tiles are --
+// cyan while wandering, magenta while fleeing, so the player gets a clear
+// read on a bat's state at a glance.
+function renderBats(ctx: CanvasRenderingContext2D, bats: Bat[], camera: Camera, viewportW: number, viewportH: number, now: number) {
+  for (const bat of bats) {
+    const sx = bat.x - camera.x
+    const sy = bat.y - camera.y
+    if (sx < -20 || sx > viewportW + 20 || sy < -20 || sy > viewportH + 20) continue
+    const flap = Math.sin(now / 90 + bat.id) * 4
+    const glow = bat.state === 'flee' ? '#ff3df0' : '#4de8ff'
+    ctx.save()
+    ctx.shadowColor = glow
+    ctx.shadowBlur = 8
+    ctx.fillStyle = glow
+    ctx.beginPath()
+    ctx.moveTo(sx, sy)
+    ctx.lineTo(sx - 9, sy - 5 - flap)
+    ctx.lineTo(sx - 3, sy)
+    ctx.closePath()
+    ctx.fill()
+    ctx.beginPath()
+    ctx.moveTo(sx, sy)
+    ctx.lineTo(sx + 9, sy - 5 - flap)
+    ctx.lineTo(sx + 3, sy)
+    ctx.closePath()
+    ctx.fill()
+    ctx.beginPath()
+    ctx.arc(sx, sy, 4, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
+}
+
 // Steps toward the target in small increments and stops at the last clear
 // position -- bounded iteration count since per-frame movement is small
 // relative to tile size (fall speed is capped), same reasoning the
@@ -981,6 +1160,7 @@ export default function MineWorldGame({ visitorId, onClose }: { visitorId: strin
   const cameraRef = useRef<Camera>({ x: 0, y: 0 })
   const playerRef = useRef<PlayerPhysics>({ x: 0, y: 0, vx: 0, vy: 0, onGround: false })
   const depthReachedRef = useRef(0)
+  const batsRef = useRef<Bat[]>([])
   const keysRef = useRef<Set<string>>(new Set())
   const rafRef = useRef<number>(0)
   const lastTimeRef = useRef<number>(0)
@@ -1080,6 +1260,7 @@ export default function MineWorldGame({ visitorId, onClose }: { visitorId: strin
       if (cancelled) return
       worldRef.current = world
       lightRef.current = computeLighting(world)
+      batsRef.current = spawnBats(world)
       if (spawnPlayer) {
         const spawn = findSpawnPoint(world)
         playerRef.current = { x: spawn.x - PLAYER_W / 2, y: spawn.y, vx: 0, vy: 0, onGround: false }
@@ -1258,6 +1439,8 @@ export default function MineWorldGame({ visitorId, onClose }: { visitorId: strin
       camera.y = p.y + PLAYER_H / 2 - canvas.height / 2
       clampCamera(camera, world, canvas.width, canvas.height)
 
+      updateBats(world, batsRef.current, p, t, dt)
+
       const mouse = mouseRef.current
       const targetTx = Math.floor((camera.x + mouse.x) / TILE_SIZE)
       const targetTy = Math.floor((camera.y + mouse.y) / TILE_SIZE)
@@ -1289,6 +1472,7 @@ export default function MineWorldGame({ visitorId, onClose }: { visitorId: strin
 
       renderWorld(ctx, world, chunksRef.current, camera, canvas.width, canvas.height)
       if (lightRef.current) renderLighting(ctx, world, lightRef.current, camera, canvas.width, canvas.height)
+      renderBats(ctx, batsRef.current, camera, canvas.width, canvas.height, t)
 
       const screenX = Math.round(p.x - camera.x)
       const screenY = Math.round(p.y - camera.y)
