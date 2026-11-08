@@ -19,11 +19,27 @@ import { AblyRoom, randomRoomCode } from '../../lib/ablyRoom'
 // table (bar rules) rather than behind the head string.
 const BALL_RADIUS = 10
 const POCKET_RADIUS = 20
-const WALL_THICKNESS = 16
+// See PoolGame.tsx for why: the rail gap at each pocket is a square notch
+// reaching further (~34px diagonally at corners) than the POCKET_RADIUS
+// (20px) capture circle, so a ball could thread that corner zone without
+// ever registering as sunk -- the real root cause behind balls escaping
+// the table. The capture check matches this square shape instead.
+const POCKET_GAP = POCKET_RADIUS + 4
+const WALL_THICKNESS = 22
 const MAX_DRAG = 160
 const MAX_LAUNCH_SPEED = 34
 const MIN_DRAG_TO_THROW = 18
 const SETTLE_DELAY_MS = 550
+
+// See PoolGame.tsx for why: fixed-timestep sub-stepping keeps per-step ball
+// travel well under rail thickness so a hard shot can't tunnel through a
+// rail in one discrete collision check, and a safety-net boundary well
+// outside the table catches anything that slips past a pocket mouth
+// (square rail gap vs. round capture radius) instead of letting it sail
+// off into empty canvas space.
+const FIXED_STEP_MS = 1000 / 120
+const MAX_SUBSTEPS_PER_FRAME = 8
+const SAFETY_MARGIN = 260
 
 // Index 1-7 -> solid color; the same color striped (9-15) renders as a
 // white ball with a band of that color instead of a full fill.
@@ -142,6 +158,7 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
   const pocketsRef = useRef<{ x: number; y: number }[]>([])
   const rafRef = useRef<number>(0)
   const lastTimeRef = useRef<number>(0)
+  const accumulatorRef = useRef(0)
 
   const phaseRef = useRef<ShotPhase>('ready')
   const settleStartRef = useRef(0)
@@ -379,44 +396,51 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
     engine.gravity.y = 0
     engineRef.current = engine
 
-    const pocketGap = POCKET_RADIUS + 8
     const rails = [
       Matter.Bodies.rectangle(
-        (table.left + pocketGap + (table.centerX - pocketGap)) / 2,
+        (table.left + POCKET_GAP + (table.centerX - POCKET_GAP)) / 2,
         table.top - WALL_THICKNESS / 2,
-        table.centerX - pocketGap - (table.left + pocketGap),
+        table.centerX - POCKET_GAP - (table.left + POCKET_GAP),
         WALL_THICKNESS,
         { isStatic: true }
       ),
       Matter.Bodies.rectangle(
-        (table.centerX + pocketGap + (table.right - pocketGap)) / 2,
+        (table.centerX + POCKET_GAP + (table.right - POCKET_GAP)) / 2,
         table.top - WALL_THICKNESS / 2,
-        table.right - pocketGap - (table.centerX + pocketGap),
+        table.right - POCKET_GAP - (table.centerX + POCKET_GAP),
         WALL_THICKNESS,
         { isStatic: true }
       ),
       Matter.Bodies.rectangle(
-        (table.left + pocketGap + (table.centerX - pocketGap)) / 2,
+        (table.left + POCKET_GAP + (table.centerX - POCKET_GAP)) / 2,
         table.bottom + WALL_THICKNESS / 2,
-        table.centerX - pocketGap - (table.left + pocketGap),
+        table.centerX - POCKET_GAP - (table.left + POCKET_GAP),
         WALL_THICKNESS,
         { isStatic: true }
       ),
       Matter.Bodies.rectangle(
-        (table.centerX + pocketGap + (table.right - pocketGap)) / 2,
+        (table.centerX + POCKET_GAP + (table.right - POCKET_GAP)) / 2,
         table.bottom + WALL_THICKNESS / 2,
-        table.right - pocketGap - (table.centerX + pocketGap),
+        table.right - POCKET_GAP - (table.centerX + POCKET_GAP),
         WALL_THICKNESS,
         { isStatic: true }
       ),
-      Matter.Bodies.rectangle(table.left - WALL_THICKNESS / 2, table.centerY, WALL_THICKNESS, table.bottom - pocketGap - (table.top + pocketGap), {
+      Matter.Bodies.rectangle(table.left - WALL_THICKNESS / 2, table.centerY, WALL_THICKNESS, table.bottom - POCKET_GAP - (table.top + POCKET_GAP), {
         isStatic: true
       }),
-      Matter.Bodies.rectangle(table.right + WALL_THICKNESS / 2, table.centerY, WALL_THICKNESS, table.bottom - pocketGap - (table.top + pocketGap), {
+      Matter.Bodies.rectangle(table.right + WALL_THICKNESS / 2, table.centerY, WALL_THICKNESS, table.bottom - POCKET_GAP - (table.top + POCKET_GAP), {
         isStatic: true
       })
     ]
     Matter.World.add(engine.world, rails)
+
+    const safetyNet = [
+      Matter.Bodies.rectangle(table.centerX, table.top - SAFETY_MARGIN, (table.right - table.left) + SAFETY_MARGIN * 2, 20, { isStatic: true }),
+      Matter.Bodies.rectangle(table.centerX, table.bottom + SAFETY_MARGIN, (table.right - table.left) + SAFETY_MARGIN * 2, 20, { isStatic: true }),
+      Matter.Bodies.rectangle(table.left - SAFETY_MARGIN, table.centerY, 20, (table.bottom - table.top) + SAFETY_MARGIN * 2, { isStatic: true }),
+      Matter.Bodies.rectangle(table.right + SAFETY_MARGIN, table.centerY, 20, (table.bottom - table.top) + SAFETY_MARGIN * 2, { isStatic: true })
+    ]
+    Matter.World.add(engine.world, safetyNet)
 
     rackBalls(engine, table)
 
@@ -445,7 +469,7 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
     if (!ctx) return
 
     const loop = (time: number) => {
-      const delta = Math.min(time - (lastTimeRef.current || time), 33)
+      const frameDelta = Math.min(time - (lastTimeRef.current || time), 250)
       lastTimeRef.current = time
       const eng = engineRef.current
       const tbl = tableRef.current
@@ -458,13 +482,21 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
       // broadcast state, applied via mpRenderBallsRef (see networking
       // effect below).
       if (mpRoleRef.current !== 'guest') {
-        Matter.Engine.update(eng, delta)
+        accumulatorRef.current += frameDelta
+        let substeps = 0
+        while (accumulatorRef.current >= FIXED_STEP_MS && substeps < MAX_SUBSTEPS_PER_FRAME) {
+          Matter.Engine.update(eng, FIXED_STEP_MS)
+          accumulatorRef.current -= FIXED_STEP_MS
+          substeps++
+        }
+        if (substeps === MAX_SUBSTEPS_PER_FRAME) accumulatorRef.current = 0
 
         for (const entry of ballsRef.current) {
           if (entry.sunk) continue
           for (const p of pocketsRef.current) {
             const d = Math.hypot(entry.body.position.x - p.x, entry.body.position.y - p.y)
-            if (d < POCKET_RADIUS) {
+            const inGapNotch = Math.abs(entry.body.position.x - p.x) <= POCKET_GAP && Math.abs(entry.body.position.y - p.y) <= POCKET_GAP
+            if (d < POCKET_RADIUS || inGapNotch) {
               entry.sunk = true
               Matter.World.remove(eng.world, entry.body)
               if (entry.isCue) scratchedThisShotRef.current = true

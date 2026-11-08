@@ -12,12 +12,43 @@ import Matter from 'matter-js'
 // 8-ball rules and multiplayer) are explicitly a later pass.
 const BALL_RADIUS = 10
 const POCKET_RADIUS = 20
-const WALL_THICKNESS = 16
+// The rails deliberately stop short of each pocket center by this much on
+// both axes, leaving a gap for balls to fall through. That gap is a square
+// notch, not a circle -- its corners reach POCKET_GAP*sqrt(2) (~34px) from
+// the pocket center, well past the POCKET_RADIUS (20px) capture circle.
+// A ball threading that corner-of-the-notch zone was neither close enough
+// to count as sunk nor blocked by any rail (none exists there by design),
+// so it just sailed on through uncaptured -- the real root cause behind
+// "the ball flies out of the arena". The capture check below matches this
+// square shape exactly instead of a circle, so anything geometrically past
+// the rails' own boundary is correctly recognized as sunk.
+const POCKET_GAP = POCKET_RADIUS + 4
+const WALL_THICKNESS = 22
 const MAX_DRAG = 160
 const MAX_LAUNCH_SPEED = 34
 const MIN_DRAG_TO_THROW = 18
 const STRIKES_TOTAL = 15
 const SETTLE_DELAY_MS = 500
+
+// Fixed-timestep physics sub-stepping -- a single Matter.Engine.update per
+// animation frame let a hard-hit ball (up to MAX_LAUNCH_SPEED) cover more
+// distance in one step than the rail is thick, which is classic tunneling:
+// the discrete collision check never samples a moment where the ball and
+// rail actually overlap, so the ball passes straight through. Running
+// several smaller steps per frame (capped so a stalled tab can't spiral)
+// keeps per-step travel well under rail thickness and reads as noticeably
+// more solid/consistent contact in general, not just at the rails.
+const FIXED_STEP_MS = 1000 / 120
+const MAX_SUBSTEPS_PER_FRAME = 8
+// Safety-net boundary well outside the table -- the rails deliberately
+// leave gaps at the pocket mouths for balls to fall through, but that gap
+// is slightly wider than the circular pocket-capture radius (a square
+// opening vs. a round capture zone), so a ball can occasionally skim a
+// pocket mouth without being captured. Rather than fight that geometry
+// mismatch exactly, this backstop guarantees a ball that slips past a
+// pocket still bounces back into play instead of sailing off into empty
+// canvas space forever.
+const SAFETY_MARGIN = 260
 
 const BALL_COLORS = [
   '#f4ecd8', '#facc15', '#60a5fa', '#f472b6', '#fb923c', '#a78bfa', '#39ff14', '#ef4444',
@@ -86,6 +117,7 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
   const pocketsRef = useRef<{ x: number; y: number }[]>([])
   const rafRef = useRef<number>(0)
   const lastTimeRef = useRef<number>(0)
+  const accumulatorRef = useRef(0)
 
   const phaseRef = useRef<ShotPhase>('ready')
   const settleStartRef = useRef(0)
@@ -175,33 +207,32 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
     // the gaps between segments are exactly where the 6 pockets sit, so a
     // ball drifting into a gap has nothing to bounce off and falls through
     // to the pocket-capture check in the loop below.
-    const pocketGap = POCKET_RADIUS + 8
     const rails = [
       Matter.Bodies.rectangle(
-        (table.left + pocketGap + (table.centerX - pocketGap)) / 2,
+        (table.left + POCKET_GAP + (table.centerX - POCKET_GAP)) / 2,
         table.top - WALL_THICKNESS / 2,
-        table.centerX - pocketGap - (table.left + pocketGap),
+        table.centerX - POCKET_GAP - (table.left + POCKET_GAP),
         WALL_THICKNESS,
         { isStatic: true }
       ),
       Matter.Bodies.rectangle(
-        (table.centerX + pocketGap + (table.right - pocketGap)) / 2,
+        (table.centerX + POCKET_GAP + (table.right - POCKET_GAP)) / 2,
         table.top - WALL_THICKNESS / 2,
-        table.right - pocketGap - (table.centerX + pocketGap),
+        table.right - POCKET_GAP - (table.centerX + POCKET_GAP),
         WALL_THICKNESS,
         { isStatic: true }
       ),
       Matter.Bodies.rectangle(
-        (table.left + pocketGap + (table.centerX - pocketGap)) / 2,
+        (table.left + POCKET_GAP + (table.centerX - POCKET_GAP)) / 2,
         table.bottom + WALL_THICKNESS / 2,
-        table.centerX - pocketGap - (table.left + pocketGap),
+        table.centerX - POCKET_GAP - (table.left + POCKET_GAP),
         WALL_THICKNESS,
         { isStatic: true }
       ),
       Matter.Bodies.rectangle(
-        (table.centerX + pocketGap + (table.right - pocketGap)) / 2,
+        (table.centerX + POCKET_GAP + (table.right - POCKET_GAP)) / 2,
         table.bottom + WALL_THICKNESS / 2,
-        table.right - pocketGap - (table.centerX + pocketGap),
+        table.right - POCKET_GAP - (table.centerX + POCKET_GAP),
         WALL_THICKNESS,
         { isStatic: true }
       ),
@@ -209,18 +240,26 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
         table.left - WALL_THICKNESS / 2,
         table.centerY,
         WALL_THICKNESS,
-        table.bottom - pocketGap - (table.top + pocketGap),
+        table.bottom - POCKET_GAP - (table.top + POCKET_GAP),
         { isStatic: true }
       ),
       Matter.Bodies.rectangle(
         table.right + WALL_THICKNESS / 2,
         table.centerY,
         WALL_THICKNESS,
-        table.bottom - pocketGap - (table.top + pocketGap),
+        table.bottom - POCKET_GAP - (table.top + POCKET_GAP),
         { isStatic: true }
       )
     ]
     Matter.World.add(engine.world, rails)
+
+    const safetyNet = [
+      Matter.Bodies.rectangle(table.centerX, table.top - SAFETY_MARGIN, (table.right - table.left) + SAFETY_MARGIN * 2, 20, { isStatic: true }),
+      Matter.Bodies.rectangle(table.centerX, table.bottom + SAFETY_MARGIN, (table.right - table.left) + SAFETY_MARGIN * 2, 20, { isStatic: true }),
+      Matter.Bodies.rectangle(table.left - SAFETY_MARGIN, table.centerY, 20, (table.bottom - table.top) + SAFETY_MARGIN * 2, { isStatic: true }),
+      Matter.Bodies.rectangle(table.right + SAFETY_MARGIN, table.centerY, 20, (table.bottom - table.top) + SAFETY_MARGIN * 2, { isStatic: true })
+    ]
+    Matter.World.add(engine.world, safetyNet)
 
     const ballOpts = {
       restitution: 0.9,
@@ -264,7 +303,7 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
     if (!ctx) return
 
     const loop = (time: number) => {
-      const delta = Math.min(time - (lastTimeRef.current || time), 33)
+      const frameDelta = Math.min(time - (lastTimeRef.current || time), 250)
       lastTimeRef.current = time
       const eng = engineRef.current
       const tbl = tableRef.current
@@ -273,7 +312,14 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
         return
       }
 
-      Matter.Engine.update(eng, delta)
+      accumulatorRef.current += frameDelta
+      let substeps = 0
+      while (accumulatorRef.current >= FIXED_STEP_MS && substeps < MAX_SUBSTEPS_PER_FRAME) {
+        Matter.Engine.update(eng, FIXED_STEP_MS)
+        accumulatorRef.current -= FIXED_STEP_MS
+        substeps++
+      }
+      if (substeps === MAX_SUBSTEPS_PER_FRAME) accumulatorRef.current = 0
 
       // Pocket capture -- checked every frame regardless of shot phase,
       // since a ball can drop in mid-roll well before everything settles.
@@ -281,7 +327,8 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
         if (entry.sunk) continue
         for (const p of pocketsRef.current) {
           const d = Math.hypot(entry.body.position.x - p.x, entry.body.position.y - p.y)
-          if (d < POCKET_RADIUS) {
+          const inGapNotch = Math.abs(entry.body.position.x - p.x) <= POCKET_GAP && Math.abs(entry.body.position.y - p.y) <= POCKET_GAP
+          if (d < POCKET_RADIUS || inGapNotch) {
             entry.sunk = true
             Matter.World.remove(eng.world, entry.body)
             if (entry.isCue) {
