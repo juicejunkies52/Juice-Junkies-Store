@@ -123,6 +123,144 @@ function groupOf(n: number): Group {
   return n <= 7 ? 'solids' : 'stripes'
 }
 
+// ---- Simple AI opponent --------------------------------------------------
+// Fixed to seat 1 -- the human always breaks (seat 0), so the AI only ever
+// enters play reactively, from the same post-shot hook that already drives
+// turn switching. Not a full solver: classic "ghost ball" aiming geometry
+// (where must the cue ball's center be at contact to send the object ball
+// toward a given pocket) plus a straight-line obstruction check per
+// candidate, scored by cut angle and distance. Deliberately imperfect --
+// angle/power jitter on the chosen shot keeps it beatable rather than
+// playing like an inhuman solver.
+const AI_SEAT: 0 | 1 = 1
+
+function legalAITargets(
+  balls: { x: number; y: number; number: number; isCue: boolean }[],
+  aiGroup: Group
+): { x: number; y: number; number: number; isCue: boolean }[] {
+  const objectBalls = balls.filter((b) => !b.isCue)
+  if (!aiGroup) return objectBalls.filter((b) => b.number !== 8)
+  const ownRemaining = objectBalls.filter((b) => b.number !== 8 && groupOf(b.number) === aiGroup)
+  if (ownRemaining.length > 0) return ownRemaining
+  return objectBalls.filter((b) => b.number === 8)
+}
+
+// True if any body in `obstacles` sits close enough to segment A->B,
+// between the endpoints, to physically block a ball travelling along it.
+function segmentBlocked(ax: number, ay: number, bx: number, by: number, obstacles: { x: number; y: number }[], ballRadius: number): boolean {
+  const dx = bx - ax
+  const dy = by - ay
+  const lenSq = dx * dx + dy * dy || 1
+  for (const o of obstacles) {
+    const t = ((o.x - ax) * dx + (o.y - ay) * dy) / lenSq
+    if (t <= 0.02 || t >= 0.98) continue
+    const px = ax + dx * t
+    const py = ay + dy * t
+    if (Math.hypot(o.x - px, o.y - py) < ballRadius * 2 - 1) return true
+  }
+  return false
+}
+
+function chooseAIShot(
+  balls: { x: number; y: number; number: number; isCue: boolean }[],
+  table: Table,
+  pockets: { x: number; y: number }[],
+  aiGroup: Group
+): { angle: number; power: number } | null {
+  const cue = balls.find((b) => b.isCue)
+  if (!cue) return null
+  const targets = legalAITargets(balls, aiGroup)
+  if (targets.length === 0) return null
+  const objectBalls = balls.filter((b) => !b.isCue)
+
+  const candidates: { angle: number; power: number; score: number }[] = []
+
+  for (const target of targets) {
+    for (const pocket of pockets) {
+      const dx = target.x - pocket.x
+      const dy = target.y - pocket.y
+      const potDist = Math.hypot(dx, dy)
+      if (potDist < 1) continue
+      const ux = dx / potDist
+      const uy = dy / potDist
+      // Ghost ball: where the cue ball's center must be at the moment of
+      // contact to send the object ball along (object -> pocket).
+      const ghostX = target.x + ux * BALL_RADIUS * 2
+      const ghostY = target.y + uy * BALL_RADIUS * 2
+      if (ghostX < table.left + BALL_RADIUS || ghostX > table.right - BALL_RADIUS || ghostY < table.top + BALL_RADIUS || ghostY > table.bottom - BALL_RADIUS) continue
+
+      const aimDist = Math.hypot(ghostX - cue.x, ghostY - cue.y)
+      if (aimDist < 1) continue
+      const aimUx = (ghostX - cue.x) / aimDist
+      const aimUy = (ghostY - cue.y) / aimDist
+
+      // Cut angle: how far off a straight "stop shot" this is. Past ~80
+      // degrees the geometry is near-impossible to reliably pocket, so
+      // those candidates are dropped rather than scored low.
+      const dot = Math.max(-1, Math.min(1, aimUx * ux + aimUy * uy))
+      const cutAngleDeg = (Math.acos(dot) * 180) / Math.PI
+      if (cutAngleDeg > 80) continue
+
+      const otherBalls = objectBalls.filter((b) => b !== target)
+      if (segmentBlocked(cue.x, cue.y, ghostX, ghostY, otherBalls, BALL_RADIUS)) continue
+      if (segmentBlocked(target.x, target.y, pocket.x, pocket.y, otherBalls, BALL_RADIUS)) continue
+
+      const totalDist = aimDist + potDist
+      const score = -cutAngleDeg * 1.5 - totalDist * 0.05
+      const angle = Math.atan2(aimUy, aimUx)
+      const power = Math.min(1, 0.35 + totalDist / 700)
+      candidates.push({ angle, power, score })
+    }
+  }
+
+  if (candidates.length === 0) {
+    // Nothing pockets cleanly -- just make legal contact with the nearest
+    // target so the shot isn't an automatic "no contact" foul.
+    let nearest = targets[0]
+    let nearestDist = Infinity
+    for (const t of targets) {
+      const d = Math.hypot(t.x - cue.x, t.y - cue.y)
+      if (d < nearestDist) {
+        nearestDist = d
+        nearest = t
+      }
+    }
+    const angle = Math.atan2(nearest.y - cue.y, nearest.x - cue.x)
+    return { angle: angle + (Math.random() - 0.5) * 0.05, power: 0.45 }
+  }
+
+  candidates.sort((a, b) => b.score - a.score)
+  const top = candidates.slice(0, Math.min(3, candidates.length))
+  const chosen = top[Math.floor(Math.random() * top.length)]
+  const angleJitter = (Math.random() - 0.5) * 0.035
+  const powerJitter = (Math.random() - 0.5) * 0.15
+  return { angle: chosen.angle + angleJitter, power: Math.max(0.3, Math.min(1, chosen.power + powerJitter)) }
+}
+
+// Ball-in-hand placement: sample random spots and keep the one farthest
+// from every other ball (clear sightlines, nothing to get snookered
+// behind), rejecting anything that would overlap a ball outright.
+function chooseAIPlacement(balls: { x: number; y: number; isCue: boolean }[], table: Table): { x: number; y: number } {
+  const others = balls.filter((b) => !b.isCue)
+  let best = { x: table.centerX, y: table.centerY }
+  let bestScore = -Infinity
+  for (let i = 0; i < 12; i++) {
+    const x = table.left + BALL_RADIUS * 2 + Math.random() * (table.right - table.left - BALL_RADIUS * 4)
+    const y = table.top + BALL_RADIUS * 2 + Math.random() * (table.bottom - table.top - BALL_RADIUS * 4)
+    let minDist = others.length === 0 ? 9999 : Infinity
+    for (const o of others) {
+      const d = Math.hypot(o.x - x, o.y - y)
+      if (d < minDist) minDist = d
+    }
+    if (minDist < BALL_RADIUS * 2.2) continue
+    if (minDist > bestScore) {
+      bestScore = minDist
+      best = { x, y }
+    }
+  }
+  return best
+}
+
 function ballColor(n: number): string {
   if (n === 8) return '#0a0a0a'
   const base = GROUP_COLORS[n <= 7 ? n : n - 8]
@@ -218,6 +356,13 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
   // mySeatRef gates local input -- in solo play it's irrelevant (both
   // seats are "mine").
   const mySeatRef = useRef<0 | 1>(0)
+
+  // ---- vs AI (optional, solo only) -- AI is always seat 1, human always
+  // breaks. Driven from the same post-shot hook that already resolves
+  // turn-switching, so it needs no polling of its own.
+  const vsAIRef = useRef(false)
+  const [vsAI, setVsAI] = useState(false)
+  const aiTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const rackBalls = useCallback((engine: Matter.Engine, table: Table) => {
     for (const entry of ballsRef.current) {
@@ -358,6 +503,67 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
       phase: phaseRef.current
     })
   }, [])
+
+  // Shared by the local human (solo/host) pointerup handler and the AI --
+  // same per-shot ref resets + velocity set either way.
+  const launchCue = useCallback((angle: number, power: number) => {
+    const cue = cueBallRef.current
+    if (!cue) return
+    pottedThisShotRef.current = []
+    scratchedThisShotRef.current = false
+    firstContactRef.current = null
+    const speed = power * MAX_LAUNCH_SPEED
+    Matter.Body.setVelocity(cue, { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed })
+    phaseRef.current = 'rolling'
+  }, [])
+
+  // Shared by the local human (solo/host) placing-phase pointerdown and
+  // the AI's ball-in-hand placement.
+  const placeCue = useCallback((x: number, y: number) => {
+    const cue = cueBallRef.current
+    const tbl = tableRef.current
+    if (!cue || !tbl) return
+    const cx = Math.min(tbl.right - BALL_RADIUS, Math.max(tbl.left + BALL_RADIUS, x))
+    const cy = Math.min(tbl.bottom - BALL_RADIUS, Math.max(tbl.top + BALL_RADIUS, y))
+    Matter.Body.setPosition(cue, { x: cx, y: cy })
+    phaseRef.current = 'ready'
+    setIsPlacing(false)
+  }, [])
+
+  // Called right after every turn-resolution (see the settling branch of
+  // the render loop below) -- a no-op unless it's now the AI's turn. Reads
+  // only refs, so it's safe to call from the loop's frozen closure.
+  const maybeTriggerAI = useCallback(() => {
+    if (!vsAIRef.current || gameOverRef.current || currentPlayerRef.current !== AI_SEAT) return
+    if (aiTimeoutRef.current) return
+    const phase = phaseRef.current
+    if (phase !== 'ready' && phase !== 'placing') return
+
+    aiTimeoutRef.current = setTimeout(
+      () => {
+        aiTimeoutRef.current = null
+        const tbl = tableRef.current
+        if (!tbl || gameOverRef.current || currentPlayerRef.current !== AI_SEAT) return
+
+        if (phaseRef.current === 'placing') {
+          const balls = ballsRef.current.filter((e) => !e.sunk).map((e) => ({ x: e.body.position.x, y: e.body.position.y, isCue: e.isCue }))
+          const spot = chooseAIPlacement(balls, tbl)
+          placeCue(spot.x, spot.y)
+          maybeTriggerAI()
+          return
+        }
+
+        if (phaseRef.current === 'ready') {
+          const balls = ballsRef.current
+            .filter((e) => !e.sunk)
+            .map((e) => ({ x: e.body.position.x, y: e.body.position.y, number: e.number, isCue: e.isCue }))
+          const shot = chooseAIShot(balls, tbl, pocketsRef.current, playersRef.current[AI_SEAT])
+          if (shot) launchCue(shot.angle, shot.power)
+        }
+      },
+      phaseRef.current === 'placing' ? 500 : 900
+    )
+  }, [launchCue, placeCue])
 
   // ---- Setup: engine, rails, rack, render/physics loop -----------------
   useEffect(() => {
@@ -530,6 +736,7 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
               cueBallRef.current = freshCue
               ballsRef.current = [{ body: freshCue, sunk: false, isCue: true, number: 0 }, ...ballsRef.current.filter((e) => !e.isCue)]
             }
+            maybeTriggerAI()
           }
         }
 
@@ -771,30 +978,24 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
   useEffect(() => {
     return () => {
       ablyRoomRef.current?.close()
+      if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current)
     }
   }, [])
 
   // ---- Local input: pointerdown starts a drag/placement, move/up are
   // window-level (not setPointerCapture -- see PoolGame.tsx) -------------
   const amShooter = () => {
-    if (mpRoleRef.current === 'solo') return true
+    if (mpRoleRef.current === 'solo') return !(vsAIRef.current && currentPlayerRef.current === AI_SEAT)
     return mySeatRef.current === currentPlayerRef.current
   }
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (gameOver || !amShooter()) return
     if (phaseRef.current === 'placing') {
-      const tbl = tableRef.current
-      const cue = cueBallRef.current
-      if (!tbl || !cue) return
-      const x = Math.min(tbl.right - BALL_RADIUS, Math.max(tbl.left + BALL_RADIUS, e.clientX))
-      const y = Math.min(tbl.bottom - BALL_RADIUS, Math.max(tbl.top + BALL_RADIUS, e.clientY))
       if (mpRoleRef.current === 'guest') {
-        ablyRoomRef.current?.publish('place', { x, y })
+        ablyRoomRef.current?.publish('place', { x: e.clientX, y: e.clientY })
       } else {
-        Matter.Body.setPosition(cue, { x, y })
-        phaseRef.current = 'ready'
-        setIsPlacing(false)
+        placeCue(e.clientX, e.clientY)
       }
       return
     }
@@ -828,21 +1029,14 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
       const clamped = Math.min(MAX_DRAG, dist)
       const power = clamped / MAX_DRAG
       const angle = Math.atan2(-dy, -dx)
-      const speed = power * MAX_LAUNCH_SPEED
 
       if (mpRoleRef.current === 'guest') {
-        ablyRoomRef.current?.publish('shot', { angle, speed })
+        ablyRoomRef.current?.publish('shot', { angle, speed: power * MAX_LAUNCH_SPEED })
         phaseRef.current = 'ready'
         return
       }
 
-      const cue = cueBallRef.current
-      if (!cue) return
-      pottedThisShotRef.current = []
-      scratchedThisShotRef.current = false
-      firstContactRef.current = null
-      Matter.Body.setVelocity(cue, { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed })
-      phaseRef.current = 'rolling'
+      launchCue(angle, power)
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', endDrag)
@@ -874,6 +1068,19 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
     setSunkNumbers(new Set())
   }
 
+  // Toggling restarts the rack -- simplest way to guarantee a clean state
+  // (human always breaking, no AI turn left mid-flight) rather than trying
+  // to splice AI control into/out of a game already in progress.
+  const toggleVsAI = () => {
+    if (aiTimeoutRef.current) {
+      clearTimeout(aiTimeoutRef.current)
+      aiTimeoutRef.current = null
+    }
+    vsAIRef.current = !vsAIRef.current
+    setVsAI(vsAIRef.current)
+    playAgain()
+  }
+
   const groupLabel = (g: Group) => (g === 'solids' ? 'Solids' : g === 'stripes' ? 'Stripes' : 'Open table')
   const myTurn = amShooter()
 
@@ -895,16 +1102,33 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
       </button>
 
       {mpRole === 'solo' && !showLobby && (
-        <button
-          onClick={() => setShowLobby(true)}
-          className="fixed top-4 left-1/2 z-[120] -translate-x-1/2 rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-white/70 transition-colors hover:border-accent"
-        >
-          🌐 Play online
-        </button>
+        <div className="fixed top-4 left-1/2 z-[120] flex -translate-x-1/2 gap-2">
+          <button
+            onClick={toggleVsAI}
+            className="rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-white/70 transition-colors hover:border-accent"
+          >
+            🤖 {vsAI ? 'vs AI: ON' : 'vs AI'}
+          </button>
+          <button
+            onClick={() => setShowLobby(true)}
+            className="rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-white/70 transition-colors hover:border-accent"
+          >
+            🌐 Play online
+          </button>
+        </div>
       )}
 
       <div className="pointer-events-none fixed top-14 left-1/2 z-[110] -translate-x-1/2 rounded-full border border-white/15 bg-black/70 px-4 py-1.5 text-xs font-medium text-white/80 backdrop-blur-sm">
-        {mpRole === 'solo' ? `Player ${currentPlayer + 1}` : myTurn ? 'Your turn' : `Waiting on ${mpRole === 'host' ? 'guest' : 'host'}`} &middot; {groupLabel(groups[currentPlayer])}
+        {mpRole === 'solo'
+          ? vsAI
+            ? currentPlayer === 0
+              ? 'Your turn'
+              : 'AI thinking...'
+            : `Player ${currentPlayer + 1}`
+          : myTurn
+            ? 'Your turn'
+            : `Waiting on ${mpRole === 'host' ? 'guest' : 'host'}`}{' '}
+        &middot; {groupLabel(groups[currentPlayer])}
         {mpRole !== 'solo' && <span className="ml-2 text-white/40">(you: {mpRole === 'host' ? 'Player 1' : 'Player 2'})</span>}
       </div>
 
@@ -1010,7 +1234,15 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
         <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70" onClick={(e) => e.stopPropagation()}>
           <div className="w-72 rounded-xl border border-accent/50 bg-black/90 p-6 text-center">
             <div className="text-lg font-bold text-accent">
-              {mpRole === 'solo' ? `Player ${(winner ?? 0) + 1} Wins!` : winner === mySeatRef.current ? 'You Win!' : 'You Lose'}
+              {mpRole === 'solo'
+                ? vsAI
+                  ? winner === 0
+                    ? 'You Win!'
+                    : 'AI Wins'
+                  : `Player ${(winner ?? 0) + 1} Wins!`
+                : winner === mySeatRef.current
+                  ? 'You Win!'
+                  : 'You Lose'}
             </div>
             <div className="mt-2 text-sm text-white/60">{winReason}</div>
             <div className="mt-4 flex flex-col gap-2">
