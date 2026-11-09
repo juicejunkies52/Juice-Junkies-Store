@@ -141,6 +141,107 @@ function castTrajectory(
   return { x: originX + dirX * nearest, y: originY + dirY * nearest }
 }
 
+// ---- Render-layer caching ---------------------------------------------
+// The table felt/rails/pockets never change shape frame-to-frame (only
+// built once, or rebuilt on resize), and every ball of a given color
+// always looks identical -- only its position moves. Redrawing all of
+// that from scratch with arc()/fillRect()/gradient calls on every single
+// animation frame was pure waste (and, combined with the per-frame
+// setState below, the actual source of perceived lag while dragging to
+// aim). Both get pre-rendered once to small offscreen canvases and
+// blitted with a single drawImage() per frame instead -- cheaper AND the
+// natural place to add real shading/gradients, since that detail is now
+// free at runtime rather than costing real time every frame.
+function buildTableBackground(canvasW: number, canvasH: number, table: Table, pockets: { x: number; y: number }[]): HTMLCanvasElement {
+  const bg = document.createElement('canvas')
+  bg.width = canvasW
+  bg.height = canvasH
+  const c = bg.getContext('2d')
+  if (!c) return bg
+
+  c.fillStyle = '#0a0a0f'
+  c.fillRect(0, 0, canvasW, canvasH)
+
+  c.fillStyle = '#0d3b24'
+  c.fillRect(table.left - WALL_THICKNESS, table.top - WALL_THICKNESS, table.right - table.left + WALL_THICKNESS * 2, table.bottom - table.top + WALL_THICKNESS * 2)
+
+  const feltRadius = Math.max(table.right - table.left, table.bottom - table.top) * 0.75
+  const felt = c.createRadialGradient(table.centerX, table.centerY, 10, table.centerX, table.centerY, feltRadius)
+  felt.addColorStop(0, '#1b7047')
+  felt.addColorStop(1, '#0e3a24')
+  c.fillStyle = felt
+  c.fillRect(table.left, table.top, table.right - table.left, table.bottom - table.top)
+
+  // Cushion highlight/shadow lines along the inner rail edge, suggesting
+  // a raised cushion instead of a flat-colored border.
+  c.strokeStyle = 'rgba(255,255,255,0.07)'
+  c.lineWidth = 2
+  c.strokeRect(table.left + 1, table.top + 1, table.right - table.left - 2, table.bottom - table.top - 2)
+  c.strokeStyle = 'rgba(0,0,0,0.3)'
+  c.lineWidth = 1
+  c.strokeRect(table.left + 5, table.top + 5, table.right - table.left - 10, table.bottom - table.top - 10)
+
+  for (const p of pockets) {
+    const hole = c.createRadialGradient(p.x, p.y, 1, p.x, p.y, POCKET_RADIUS)
+    hole.addColorStop(0, '#000000')
+    hole.addColorStop(0.8, '#000000')
+    hole.addColorStop(1, 'rgba(0,0,0,0.55)')
+    c.fillStyle = hole
+    c.beginPath()
+    c.arc(p.x, p.y, POCKET_RADIUS, 0, Math.PI * 2)
+    c.fill()
+    c.strokeStyle = 'rgba(255,255,255,0.1)'
+    c.lineWidth = 1.5
+    c.beginPath()
+    c.arc(p.x, p.y, POCKET_RADIUS - 1, 0, Math.PI * 2)
+    c.stroke()
+  }
+
+  return bg
+}
+
+// A glossy-sphere look via two clipped radial gradients (dark rim +
+// upper-left highlight) layered over the flat base color -- alpha
+// compositing, so no hex-color-math helper is needed to lighten/darken.
+function buildBallSprite(baseColor: string): HTMLCanvasElement {
+  const pad = 3
+  const size = (BALL_RADIUS + pad) * 2
+  const r = BALL_RADIUS
+  const cvs = document.createElement('canvas')
+  cvs.width = size
+  cvs.height = size
+  const c = cvs.getContext('2d')
+  if (!c) return cvs
+  const cx = size / 2
+  const cy = size / 2
+
+  c.beginPath()
+  c.arc(cx, cy, r, 0, Math.PI * 2)
+  c.fillStyle = baseColor
+  c.fill()
+
+  c.save()
+  c.beginPath()
+  c.arc(cx, cy, r, 0, Math.PI * 2)
+  c.clip()
+
+  const rim = c.createRadialGradient(cx, cy, r * 0.55, cx, cy, r)
+  rim.addColorStop(0, 'rgba(0,0,0,0)')
+  rim.addColorStop(1, 'rgba(0,0,0,0.35)')
+  c.fillStyle = rim
+  c.fillRect(0, 0, size, size)
+
+  const highlight = c.createRadialGradient(cx - r * 0.35, cy - r * 0.4, 0, cx - r * 0.35, cy - r * 0.4, r * 0.9)
+  highlight.addColorStop(0, 'rgba(255,255,255,0.6)')
+  highlight.addColorStop(0.5, 'rgba(255,255,255,0.12)')
+  highlight.addColorStop(1, 'rgba(255,255,255,0)')
+  c.fillStyle = highlight
+  c.fillRect(0, 0, size, size)
+
+  c.restore()
+  return cvs
+}
+
 export default function PoolGame({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const engineRef = useRef<Matter.Engine | null>(null)
@@ -177,7 +278,14 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
   const [strikesLeft, setStrikesLeft] = useState(STRIKES_TOTAL)
   const [sunkCount, setSunkCount] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
-  const [dragPower, setDragPower] = useState(0)
+  // Updated every animation frame while dragging -- a ref + direct DOM
+  // write, not React state, since the previous setState-per-frame here
+  // forced a full component re-render 60-120 times/sec during the most
+  // interactive moment of play (the real source of perceived lag).
+  const dragPowerRef = useRef(0)
+  const powerBarRef = useRef<HTMLDivElement>(null)
+  const bgCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const ballSpritesRef = useRef<HTMLCanvasElement[]>([])
   const [gameOver, setGameOver] = useState(false)
   const [endReason, setEndReason] = useState<EndReason>(null)
   const [personalBest, setPersonalBest] = useState<number | null>(null)
@@ -245,6 +353,8 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
       { x: table.right, y: table.bottom }
     ]
     pocketsRef.current = pockets
+    bgCanvasRef.current = buildTableBackground(width, height, table, pockets)
+    ballSpritesRef.current = [buildBallSprite('#ffffff'), ...BALL_COLORS.map((c) => buildBallSprite(c))]
 
     const engine = Matter.Engine.create()
     engine.gravity.x = 0
@@ -379,6 +489,7 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
     const resize = () => {
       canvas.width = window.innerWidth
       canvas.height = window.innerHeight
+      bgCanvasRef.current = buildTableBackground(canvas.width, canvas.height, table, pockets)
     }
     window.addEventListener('resize', resize)
 
@@ -494,41 +605,36 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
       }
 
       // ---- Render ----
-      ctx.fillStyle = '#0a0a0f'
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-      ctx.fillStyle = '#0d3b24'
-      ctx.fillRect(tbl.left - WALL_THICKNESS, tbl.top - WALL_THICKNESS, tbl.right - tbl.left + WALL_THICKNESS * 2, tbl.bottom - tbl.top + WALL_THICKNESS * 2)
-      ctx.fillStyle = '#145c38'
-      ctx.fillRect(tbl.left, tbl.top, tbl.right - tbl.left, tbl.bottom - tbl.top)
-
-      for (const p of pocketsRef.current) {
-        ctx.fillStyle = '#000'
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, POCKET_RADIUS, 0, Math.PI * 2)
-        ctx.fill()
-      }
+      // Table felt/rails/pockets are a single pre-rendered bitmap (see
+      // buildTableBackground above) -- one drawImage instead of the
+      // fillRect/arc/gradient calls that used to run here every frame.
+      if (bgCanvasRef.current) ctx.drawImage(bgCanvasRef.current, 0, 0)
 
       let ballIdx = 0
       for (const entry of ballsRef.current) {
         if (entry.sunk) continue
-        const color = entry.isCue ? '#ffffff' : BALL_COLORS[ballIdx % BALL_COLORS.length]
+        const spriteIdx = entry.isCue ? 0 : 1 + (ballIdx % BALL_COLORS.length)
         if (!entry.isCue) ballIdx++
-        ctx.fillStyle = color
+        const { x, y } = entry.body.position
+
+        // Shadow stays live (position changes every frame); the ball
+        // itself is a cached sprite (see buildBallSprite above) blitted
+        // at its current position instead of redrawn from scratch.
+        ctx.fillStyle = 'rgba(0,0,0,0.28)'
         ctx.beginPath()
-        ctx.arc(entry.body.position.x, entry.body.position.y, BALL_RADIUS, 0, Math.PI * 2)
+        ctx.ellipse(x + 2, y + 3, BALL_RADIUS * 0.92, BALL_RADIUS * 0.55, 0, 0, Math.PI * 2)
         ctx.fill()
-        ctx.fillStyle = entry.isCue ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.35)'
-        ctx.beginPath()
-        ctx.arc(entry.body.position.x - 3, entry.body.position.y - 3, BALL_RADIUS * 0.3, 0, Math.PI * 2)
-        ctx.fill()
+
+        const sprite = ballSpritesRef.current[spriteIdx]
+        if (sprite) ctx.drawImage(sprite, x - sprite.width / 2, y - sprite.height / 2)
+
         // Spin marker -- shows where on the cue ball the next shot will
         // strike, mirroring the dial's own marker so the chosen spin is
         // also visible on the ball itself while aiming.
         if (entry.isCue && (spinRef.current.x !== 0 || spinRef.current.y !== 0)) {
           ctx.fillStyle = '#39ff14'
           ctx.beginPath()
-          ctx.arc(entry.body.position.x + spinRef.current.x * BALL_RADIUS * 0.6, entry.body.position.y + spinRef.current.y * BALL_RADIUS * 0.6, 2.2, 0, Math.PI * 2)
+          ctx.arc(x + spinRef.current.x * BALL_RADIUS * 0.6, y + spinRef.current.y * BALL_RADIUS * 0.6, 2.2, 0, Math.PI * 2)
           ctx.fill()
         }
       }
@@ -540,7 +646,11 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
         const dy = drag.curY - drag.startY
         const dist = Math.min(MAX_DRAG, Math.hypot(dx, dy))
         const power = dist / MAX_DRAG
-        setDragPower(power)
+        dragPowerRef.current = power
+        if (powerBarRef.current) {
+          powerBarRef.current.style.height = `${Math.round(power * 100)}%`
+          powerBarRef.current.style.background = `linear-gradient(to top, #39ff14, rgb(${Math.round(255 * power)},${Math.round(255 * (1 - power * 0.5))},60))`
+        }
         const aimAngle = Math.atan2(-dy, -dx)
         const dirX = Math.cos(aimAngle)
         const dirY = Math.sin(aimAngle)
@@ -783,13 +893,7 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
         <div className="pointer-events-none fixed top-1/2 right-6 z-[110] flex -translate-y-1/2 flex-col items-center gap-1">
           <span className="text-[10px] font-medium text-white/50">Power</span>
           <div className="flex h-40 w-4 flex-col-reverse overflow-hidden rounded-full border border-white/20 bg-black/50">
-            <div
-              className="w-full rounded-full transition-[height]"
-              style={{
-                height: `${Math.round(dragPower * 100)}%`,
-                background: `linear-gradient(to top, #39ff14, rgb(${Math.round(255 * dragPower)},${Math.round(255 * (1 - dragPower * 0.5))},60))`
-              }}
-            />
+            <div ref={powerBarRef} className="w-full rounded-full" style={{ height: '0%' }} />
           </div>
         </div>
       )}

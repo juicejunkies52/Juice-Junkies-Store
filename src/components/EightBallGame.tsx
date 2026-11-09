@@ -288,6 +288,134 @@ function ballColor(n: number): string {
   return base
 }
 
+// ---- Render-layer caching -- see PoolGame.tsx for the full rationale:
+// the table felt/rails/pockets never change shape frame-to-frame, and
+// every ball of a given number always looks identical -- only its
+// position moves. Redrawing all of it (plus a fillText call per ball)
+// from scratch every single frame was pure waste and, combined with the
+// per-frame setState this file used to also have, the real source of
+// perceived lag while dragging to aim. Both get pre-rendered once to
+// small offscreen canvases and blitted with drawImage() per frame.
+function buildTableBackground(canvasW: number, canvasH: number, table: Table, pockets: { x: number; y: number }[]): HTMLCanvasElement {
+  const bg = document.createElement('canvas')
+  bg.width = canvasW
+  bg.height = canvasH
+  const c = bg.getContext('2d')
+  if (!c) return bg
+
+  c.fillStyle = '#0a0a0f'
+  c.fillRect(0, 0, canvasW, canvasH)
+
+  c.fillStyle = '#0d3b24'
+  c.fillRect(table.left - WALL_THICKNESS, table.top - WALL_THICKNESS, table.right - table.left + WALL_THICKNESS * 2, table.bottom - table.top + WALL_THICKNESS * 2)
+
+  const feltRadius = Math.max(table.right - table.left, table.bottom - table.top) * 0.75
+  const felt = c.createRadialGradient(table.centerX, table.centerY, 10, table.centerX, table.centerY, feltRadius)
+  felt.addColorStop(0, '#1b7047')
+  felt.addColorStop(1, '#0e3a24')
+  c.fillStyle = felt
+  c.fillRect(table.left, table.top, table.right - table.left, table.bottom - table.top)
+
+  c.strokeStyle = 'rgba(255,255,255,0.07)'
+  c.lineWidth = 2
+  c.strokeRect(table.left + 1, table.top + 1, table.right - table.left - 2, table.bottom - table.top - 2)
+  c.strokeStyle = 'rgba(0,0,0,0.3)'
+  c.lineWidth = 1
+  c.strokeRect(table.left + 5, table.top + 5, table.right - table.left - 10, table.bottom - table.top - 10)
+
+  for (const p of pockets) {
+    const hole = c.createRadialGradient(p.x, p.y, 1, p.x, p.y, POCKET_RADIUS)
+    hole.addColorStop(0, '#000000')
+    hole.addColorStop(0.8, '#000000')
+    hole.addColorStop(1, 'rgba(0,0,0,0.55)')
+    c.fillStyle = hole
+    c.beginPath()
+    c.arc(p.x, p.y, POCKET_RADIUS, 0, Math.PI * 2)
+    c.fill()
+    c.strokeStyle = 'rgba(255,255,255,0.1)'
+    c.lineWidth = 1.5
+    c.beginPath()
+    c.arc(p.x, p.y, POCKET_RADIUS - 1, 0, Math.PI * 2)
+    c.stroke()
+  }
+
+  return bg
+}
+
+// A glossy-sphere look via two clipped radial gradients (dark rim +
+// upper-left highlight) over the flat fill -- alpha compositing, so no
+// hex-color-math helper is needed. The number is baked in last so the
+// per-frame loop never needs a fillText call either.
+function buildBallSprite(number: number): HTMLCanvasElement {
+  const pad = 3
+  const size = (BALL_RADIUS + pad) * 2
+  const r = BALL_RADIUS
+  const cvs = document.createElement('canvas')
+  cvs.width = size
+  cvs.height = size
+  const c = cvs.getContext('2d')
+  if (!c) return cvs
+  const cx = size / 2
+  const cy = size / 2
+
+  const isCue = number === 0
+  const group = groupOf(number)
+
+  if (isCue) {
+    c.beginPath()
+    c.arc(cx, cy, r, 0, Math.PI * 2)
+    c.fillStyle = '#ffffff'
+    c.fill()
+  } else if (group === 'stripes') {
+    c.beginPath()
+    c.arc(cx, cy, r, 0, Math.PI * 2)
+    c.fillStyle = '#f4ecd8'
+    c.fill()
+    c.save()
+    c.beginPath()
+    c.arc(cx, cy, r, 0, Math.PI * 2)
+    c.clip()
+    c.fillStyle = ballColor(number)
+    c.fillRect(cx - r, cy - r * 0.42, r * 2, r * 0.84)
+    c.restore()
+  } else {
+    c.beginPath()
+    c.arc(cx, cy, r, 0, Math.PI * 2)
+    c.fillStyle = ballColor(number)
+    c.fill()
+  }
+
+  c.save()
+  c.beginPath()
+  c.arc(cx, cy, r, 0, Math.PI * 2)
+  c.clip()
+
+  const rim = c.createRadialGradient(cx, cy, r * 0.55, cx, cy, r)
+  rim.addColorStop(0, 'rgba(0,0,0,0)')
+  rim.addColorStop(1, 'rgba(0,0,0,0.35)')
+  c.fillStyle = rim
+  c.fillRect(0, 0, size, size)
+
+  const highlight = c.createRadialGradient(cx - r * 0.35, cy - r * 0.4, 0, cx - r * 0.35, cy - r * 0.4, r * 0.9)
+  highlight.addColorStop(0, 'rgba(255,255,255,0.6)')
+  highlight.addColorStop(0.5, 'rgba(255,255,255,0.12)')
+  highlight.addColorStop(1, 'rgba(255,255,255,0)')
+  c.fillStyle = highlight
+  c.fillRect(0, 0, size, size)
+
+  c.restore()
+
+  if (!isCue) {
+    c.font = 'bold 8px sans-serif'
+    c.textAlign = 'center'
+    c.textBaseline = 'middle'
+    c.fillStyle = number === 8 ? '#fff' : group === 'stripes' ? '#111' : '#fff'
+    c.fillText(String(number), cx, cy + 0.5)
+  }
+
+  return cvs
+}
+
 // Standard 8-ball rack: ball 8 at the exact center of the triangle (3rd
 // row, middle slot), the other 14 shuffled into the remaining slots. The
 // center slot is the 5th ball placed in row-by-row (1,2,3,4,5) order --
@@ -350,7 +478,13 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
   const [groups, setGroups] = useState<[Group, Group]>([null, null])
   const [currentPlayer, setCurrentPlayer] = useState<0 | 1>(0)
   const [isDragging, setIsDragging] = useState(false)
-  const [dragPower, setDragPower] = useState(0)
+  // Updated every animation frame while dragging -- a ref + direct DOM
+  // write, not React state (see PoolGame.tsx for why the old setState-
+  // per-frame here was the real source of perceived lag).
+  const dragPowerRef = useRef(0)
+  const powerBarRef = useRef<HTMLDivElement>(null)
+  const bgCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const ballSpritesRef = useRef<HTMLCanvasElement[]>([])
   const [sunkNumbers, setSunkNumbers] = useState<Set<number>>(new Set())
   // Mirrors phaseRef.current === 'placing' for the ball-in-hand hint text
   // -- phaseRef itself is a ref precisely so the render-loop closure always
@@ -637,6 +771,8 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
       { x: table.right, y: table.bottom }
     ]
     pocketsRef.current = pockets
+    bgCanvasRef.current = buildTableBackground(width, height, table, pockets)
+    ballSpritesRef.current = Array.from({ length: 16 }, (_, n) => buildBallSprite(n))
 
     const engine = Matter.Engine.create()
     engine.gravity.x = 0
@@ -729,6 +865,7 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
     const resize = () => {
       canvas.width = window.innerWidth
       canvas.height = window.innerHeight
+      bgCanvasRef.current = buildTableBackground(canvas.width, canvas.height, table, pockets)
     }
     window.addEventListener('resize', resize)
 
@@ -852,62 +989,31 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
       }
 
       // ---- Render ----
-      ctx.fillStyle = '#0a0a0f'
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-      ctx.fillStyle = '#0d3b24'
-      ctx.fillRect(tbl.left - WALL_THICKNESS, tbl.top - WALL_THICKNESS, tbl.right - tbl.left + WALL_THICKNESS * 2, tbl.bottom - tbl.top + WALL_THICKNESS * 2)
-      ctx.fillStyle = '#145c38'
-      ctx.fillRect(tbl.left, tbl.top, tbl.right - tbl.left, tbl.bottom - tbl.top)
-
-      for (const p of pocketsRef.current) {
-        ctx.fillStyle = '#000'
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, POCKET_RADIUS, 0, Math.PI * 2)
-        ctx.fill()
-      }
+      // Table felt/rails/pockets and every ball appearance are pre-
+      // rendered bitmaps (see buildTableBackground/buildBallSprite above)
+      // -- one drawImage each instead of the fillRect/arc/gradient/
+      // fillText calls that used to run here every frame.
+      if (bgCanvasRef.current) ctx.drawImage(bgCanvasRef.current, 0, 0)
 
       for (const entry of ballsRef.current) {
         if (entry.sunk) continue
         const { x, y } = entry.body.position
-        if (entry.isCue) {
-          ctx.fillStyle = '#ffffff'
+
+        ctx.fillStyle = 'rgba(0,0,0,0.28)'
+        ctx.beginPath()
+        ctx.ellipse(x + 2, y + 3, BALL_RADIUS * 0.92, BALL_RADIUS * 0.55, 0, 0, Math.PI * 2)
+        ctx.fill()
+
+        const sprite = ballSpritesRef.current[entry.number]
+        if (sprite) ctx.drawImage(sprite, x - sprite.width / 2, y - sprite.height / 2)
+
+        // Spin marker -- where the next shot will strike, mirroring the
+        // dial's own marker (see PoolGame.tsx).
+        if (entry.isCue && (spinRef.current.x !== 0 || spinRef.current.y !== 0)) {
+          ctx.fillStyle = '#39ff14'
           ctx.beginPath()
-          ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2)
+          ctx.arc(x + spinRef.current.x * BALL_RADIUS * 0.6, y + spinRef.current.y * BALL_RADIUS * 0.6, 2.2, 0, Math.PI * 2)
           ctx.fill()
-          // Spin marker -- where the next shot will strike, mirroring the
-          // dial's own marker (see PoolGame.tsx).
-          if (spinRef.current.x !== 0 || spinRef.current.y !== 0) {
-            ctx.fillStyle = '#39ff14'
-            ctx.beginPath()
-            ctx.arc(x + spinRef.current.x * BALL_RADIUS * 0.6, y + spinRef.current.y * BALL_RADIUS * 0.6, 2.2, 0, Math.PI * 2)
-            ctx.fill()
-          }
-        } else if (groupOf(entry.number) === 'stripes') {
-          ctx.fillStyle = '#f4ecd8'
-          ctx.beginPath()
-          ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2)
-          ctx.fill()
-          ctx.fillStyle = ballColor(entry.number)
-          ctx.save()
-          ctx.beginPath()
-          ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2)
-          ctx.clip()
-          ctx.fillRect(x - BALL_RADIUS, y - BALL_RADIUS * 0.42, BALL_RADIUS * 2, BALL_RADIUS * 0.84)
-          ctx.restore()
-        } else {
-          ctx.fillStyle = ballColor(entry.number)
-          ctx.beginPath()
-          ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2)
-          ctx.fill()
-        }
-        if (!entry.isCue) {
-          ctx.fillStyle = entry.number === 8 || groupOf(entry.number) === 'stripes' ? '#fff' : '#fff'
-          ctx.font = 'bold 8px sans-serif'
-          ctx.textAlign = 'center'
-          ctx.textBaseline = 'middle'
-          ctx.fillStyle = entry.number === 8 ? '#fff' : groupOf(entry.number) === 'stripes' ? '#111' : '#fff'
-          ctx.fillText(String(entry.number), x, y + 0.5)
         }
       }
 
@@ -918,7 +1024,11 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
         const dy = drag.curY - drag.startY
         const dist = Math.min(MAX_DRAG, Math.hypot(dx, dy))
         const power = dist / MAX_DRAG
-        setDragPower(power)
+        dragPowerRef.current = power
+        if (powerBarRef.current) {
+          powerBarRef.current.style.height = `${Math.round(power * 100)}%`
+          powerBarRef.current.style.background = `linear-gradient(to top, #39ff14, rgb(${Math.round(255 * power)},${Math.round(255 * (1 - power * 0.5))},60))`
+        }
         const aimAngle = Math.atan2(-dy, -dx)
         const dirX = Math.cos(aimAngle)
         const dirY = Math.sin(aimAngle)
@@ -1313,13 +1423,7 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
         <div className="pointer-events-none fixed top-1/2 right-6 z-[110] flex -translate-y-1/2 flex-col items-center gap-1">
           <span className="text-[10px] font-medium text-white/50">Power</span>
           <div className="flex h-40 w-4 flex-col-reverse overflow-hidden rounded-full border border-white/20 bg-black/50">
-            <div
-              className="w-full rounded-full transition-[height]"
-              style={{
-                height: `${Math.round(dragPower * 100)}%`,
-                background: `linear-gradient(to top, #39ff14, rgb(${Math.round(255 * dragPower)},${Math.round(255 * (1 - dragPower * 0.5))},60))`
-              }}
-            />
+            <div ref={powerBarRef} className="w-full rounded-full" style={{ height: '0%' }} />
           </div>
         </div>
       )}
