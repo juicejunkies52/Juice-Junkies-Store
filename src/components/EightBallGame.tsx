@@ -110,6 +110,11 @@ interface ShotResult {
 // actually hit -- another ball or a rail. Not a full physics prediction
 // (no bounce continuation past that first contact), just nearest-hit
 // geometry, recomputed fresh every frame while dragging.
+// Also tracks WHAT the nearest hit was (a ball, or a rail with its
+// surface normal) -- used by the spin preview below to predict draw/
+// follow direction (needs to know it was a ball) or the deflected
+// rebound angle (needs the rail's normal), without re-deriving either
+// from the hit point after the fact.
 function castTrajectory(
   originX: number,
   originY: number,
@@ -118,13 +123,39 @@ function castTrajectory(
   others: { x: number; y: number }[],
   table: Table,
   ballRadius: number
-): { x: number; y: number } {
+): { x: number; y: number; hitBall: { x: number; y: number } | null; hitNormal: { x: number; y: number } | null } {
   let nearest = Math.max(table.right - table.left, table.bottom - table.top) * 1.5
-  if (dirX > 0.0001) nearest = Math.min(nearest, (table.right - ballRadius - originX) / dirX)
-  if (dirX < -0.0001) nearest = Math.min(nearest, (table.left + ballRadius - originX) / dirX)
-  if (dirY > 0.0001) nearest = Math.min(nearest, (table.bottom - ballRadius - originY) / dirY)
-  if (dirY < -0.0001) nearest = Math.min(nearest, (table.top + ballRadius - originY) / dirY)
+  let hitNormal: { x: number; y: number } | null = null
+  if (dirX > 0.0001) {
+    const t = (table.right - ballRadius - originX) / dirX
+    if (t < nearest) {
+      nearest = t
+      hitNormal = { x: 1, y: 0 }
+    }
+  }
+  if (dirX < -0.0001) {
+    const t = (table.left + ballRadius - originX) / dirX
+    if (t < nearest) {
+      nearest = t
+      hitNormal = { x: -1, y: 0 }
+    }
+  }
+  if (dirY > 0.0001) {
+    const t = (table.bottom - ballRadius - originY) / dirY
+    if (t < nearest) {
+      nearest = t
+      hitNormal = { x: 0, y: 1 }
+    }
+  }
+  if (dirY < -0.0001) {
+    const t = (table.top + ballRadius - originY) / dirY
+    if (t < nearest) {
+      nearest = t
+      hitNormal = { x: 0, y: -1 }
+    }
+  }
 
+  let hitBall: { x: number; y: number } | null = null
   for (const b of others) {
     const ox = originX - b.x
     const oy = originY - b.y
@@ -134,10 +165,14 @@ function castTrajectory(
     const disc = bq * bq - 4 * c
     if (disc < 0) continue
     const t = (-bq - Math.sqrt(disc)) / 2
-    if (t > 0 && t < nearest) nearest = t
+    if (t > 0 && t < nearest) {
+      nearest = t
+      hitBall = b
+      hitNormal = null
+    }
   }
 
-  return { x: originX + dirX * nearest, y: originY + dirY * nearest }
+  return { x: originX + dirX * nearest, y: originY + dirY * nearest, hitBall, hitNormal }
 }
 
 function groupOf(n: number): Group {
@@ -1095,6 +1130,44 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
           ctx.beginPath()
           ctx.arc(hit.x, hit.y, BALL_RADIUS * 0.6, 0, Math.PI * 2)
           ctx.stroke()
+
+          // Spin preview -- see PoolGame.tsx: a short dashed segment past
+          // the contact point predicting draw/follow direction (object-
+          // ball hit) or the spin-deflected rebound angle (rail hit).
+          if (spinRef.current.x !== 0 || spinRef.current.y !== 0) {
+            let previewDirX = 0
+            let previewDirY = 0
+            let hasPreview = false
+            if (hit.hitBall && spinRef.current.y !== 0) {
+              const sign = spinRef.current.y > 0 ? -1 : 1
+              previewDirX = dirX * sign
+              previewDirY = dirY * sign
+              hasPreview = true
+            } else if (hit.hitNormal && spinRef.current.x !== 0) {
+              const n = hit.hitNormal
+              const dot = dirX * n.x + dirY * n.y
+              const rx = dirX - 2 * dot * n.x
+              const ry = dirY - 2 * dot * n.y
+              const rot = (spinRef.current.x * RAIL_ENGLISH_DEGREES * Math.PI) / 180
+              const cos = Math.cos(rot)
+              const sin = Math.sin(rot)
+              previewDirX = rx * cos - ry * sin
+              previewDirY = rx * sin + ry * cos
+              hasPreview = true
+            }
+            if (hasPreview) {
+              const previewLen = 55
+              ctx.save()
+              ctx.setLineDash([3, 5])
+              ctx.strokeStyle = 'rgba(57,255,20,0.65)'
+              ctx.lineWidth = 1.5
+              ctx.beginPath()
+              ctx.moveTo(hit.x, hit.y)
+              ctx.lineTo(hit.x + previewDirX * previewLen, hit.y + previewDirY * previewLen)
+              ctx.stroke()
+              ctx.restore()
+            }
+          }
         }
 
         // Cue stick -- pulled back opposite the travel direction, gap and
