@@ -9,11 +9,14 @@ import { getStripe } from '../../../../../lib/stripe'
 import AnimatedBackground from '../../../../components/AnimatedBackground'
 
 // Collects the shipping address here (not at deposit time) -- this is the
-// first point a pre-order actually needs one. Stripe auto-attaches the
-// AddressElement's value to the PaymentIntent's .shipping field on
-// confirm as long as both live in the same Elements instance, same as
-// CheckoutForm.tsx; the webhook's preorder_balance handler reads it from
-// there exactly like the normal order flow does.
+// first point a pre-order actually needs one. Rendering an AddressElement
+// does NOT on its own attach its value to the PaymentIntent -- confirmed
+// the hard way in CheckoutForm.tsx, where this exact same assumption
+// ("Stripe auto-attaches it") meant 12 real checkout attempts had their
+// address silently dropped. Has to be read out via getValue() and passed
+// explicitly; the webhook's preorder_balance handler reads it from
+// paymentIntent.shipping exactly like the normal order flow does, so this
+// only needed to start actually putting something there.
 function BalancePaymentForm({ orderId }: { orderId: string }) {
   const stripe = useStripe()
   const elements = useElements()
@@ -29,11 +32,31 @@ function BalancePaymentForm({ orderId }: { orderId: string }) {
     setIsLoading(true)
     setMessage(null)
 
+    const addressElement = elements.getElement(AddressElement)
+    if (!addressElement) {
+      setMessage('Something went wrong loading the shipping address form. Please refresh and try again.')
+      setIsLoading(false)
+      return
+    }
+    const { complete: addressComplete, value: addressValue } = await addressElement.getValue()
+    if (!addressComplete) {
+      setMessage('Please fill in your complete shipping address.')
+      setIsLoading(false)
+      return
+    }
+
     const result = await stripe.confirmPayment({
       elements,
       confirmParams: {
         return_url: `${window.location.origin}/order/success`,
-        receipt_email: email
+        receipt_email: email,
+        shipping: {
+          name: addressValue.name,
+          address: {
+            ...addressValue.address,
+            line2: addressValue.address.line2 || undefined
+          }
+        }
       }
     })
 
