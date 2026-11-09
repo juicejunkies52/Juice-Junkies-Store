@@ -60,11 +60,38 @@ export default function CheckoutForm() {
     setIsLoading(true)
     setMessage(null)
 
+    // Rendering an AddressElement does not, on its own, attach what the
+    // customer typed to the PaymentIntent -- it has to be read out and
+    // passed explicitly, or confirmPayment() just never sends it. Without
+    // this, the webhook (which reads paymentIntent.shipping to fill in
+    // the order's shipping address) always finds nothing there, and the
+    // order gets stuck with no address and no fulfillment attempt ever
+    // made, silently, with no error visible anywhere.
+    const addressElement = elements.getElement(AddressElement)
+    if (!addressElement) {
+      setMessage('Something went wrong loading the shipping address form. Please refresh and try again.')
+      setIsLoading(false)
+      return
+    }
+    const { complete: addressComplete, value: addressValue } = await addressElement.getValue()
+    if (!addressComplete) {
+      setMessage('Please fill in your complete shipping address.')
+      setIsLoading(false)
+      return
+    }
+
     const result = await stripe.confirmPayment({
       elements,
       confirmParams: {
         return_url: `${window.location.origin}/order/success`,
         receipt_email: email,
+        shipping: {
+          name: addressValue.name,
+          address: {
+            ...addressValue.address,
+            line2: addressValue.address.line2 || undefined
+          }
+        }
       },
     })
 
