@@ -50,6 +50,39 @@ const MAX_SUBSTEPS_PER_FRAME = 8
 // canvas space forever.
 const SAFETY_MARGIN = 260
 
+// Cue ball spin (English) -- a deliberately bounded approximation, not a
+// full rolling-friction/contact-spin simulation (matter-js is 2D and has
+// no notion of ball spin at all). Three effects, each tuned empirically
+// against a standalone physics harness before landing here:
+//  - Draw/follow: a ONE-TIME effect at the cue ball's first contact with
+//    an object ball. Rather than adding an impulse on top of whatever
+//    residual velocity matter-js's own collision resolution happens to
+//    leave (verified to be small and inconsistent -- center-ball/no-spin
+//    already approximates a real stun shot reasonably well on its own),
+//    the post-contact velocity is set directly as a fraction of the
+//    cue ball's PRE-contact speed along its incoming direction, scaled
+//    by spinY. This gives predictable, designed control instead of being
+//    a slave to the engine's own idiosyncratic post-collision residual.
+const DRAW_FOLLOW_FACTOR = 0.35
+//  - Pre-contact curve: a small continuous perpendicular nudge applied
+//    every physics substep before the cue ball has touched anything,
+//    proportional to spinX -- the visual "swerve" real side-spin produces
+//    on the way to the object ball. Capped to a bounded number of
+//    substeps regardless of contact -- real swerve is a brief transient
+//    right after the shot (the ball sliding before it bites into a roll),
+//    not something that keeps bending the whole time it's moving. Without
+//    this cap, an open shot with nothing to hit curves forever and the
+//    perpendicular nudge eventually overwhelms and corrupts the ball's
+//    actual direction of travel -- caught live, not just in the harness.
+const CURVE_STRENGTH = 0.18
+const CURVE_MAX_SUBSTEPS = 20
+//  - Rail-rebound deflection: every time the cue ball (not an object ball)
+//    contacts a rail, its post-bounce velocity is rotated by up to this
+//    many degrees (scaled by spinX) on top of matter-js's own correct
+//    mirror-angle reflection -- real english visibly shifts the rebound
+//    angle off a cushion.
+const RAIL_ENGLISH_DEGREES = 10
+
 const BALL_COLORS = [
   '#f4ecd8', '#facc15', '#60a5fa', '#f472b6', '#fb923c', '#a78bfa', '#39ff14', '#ef4444',
   '#38bdf8', '#eab308', '#ec4899', '#fb7185', '#34d399', '#c084fc', '#fdba74'
@@ -122,6 +155,21 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
   const phaseRef = useRef<ShotPhase>('ready')
   const settleStartRef = useRef(0)
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; curX: number; curY: number } | null>(null)
+
+  // ---- Spin (English) -- see the constants above for the approximation
+  // this implements. spinRef is the PENDING spin the player has dialed in
+  // (settable any time it's their turn to aim); shotSpinRef is what's
+  // actually in effect for the shot currently in flight, captured at
+  // launch so a mid-flight dial change can't retroactively alter it.
+  const spinRef = useRef({ x: 0, y: 0 })
+  const [spin, setSpin] = useState({ x: 0, y: 0 })
+  const shotSpinRef = useRef({ x: 0, y: 0 })
+  const firstContactAppliedRef = useRef(false)
+  const pendingFollowDrawRef = useRef<{ dirX: number; dirY: number; targetSpeed: number } | null>(null)
+  const pendingRailDeflectRef = useRef(false)
+  const curveSubstepsLeftRef = useRef(0)
+  const spinDialRef = useRef<HTMLDivElement>(null)
+  const draggingSpinRef = useRef(false)
 
   const strikesLeftRef = useRef(STRIKES_TOTAL)
   const sunkCountRef = useRef(0)
@@ -213,51 +261,51 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
         table.top - WALL_THICKNESS / 2,
         table.centerX - POCKET_GAP - (table.left + POCKET_GAP),
         WALL_THICKNESS,
-        { isStatic: true }
+        { isStatic: true, label: 'rail' }
       ),
       Matter.Bodies.rectangle(
         (table.centerX + POCKET_GAP + (table.right - POCKET_GAP)) / 2,
         table.top - WALL_THICKNESS / 2,
         table.right - POCKET_GAP - (table.centerX + POCKET_GAP),
         WALL_THICKNESS,
-        { isStatic: true }
+        { isStatic: true, label: 'rail' }
       ),
       Matter.Bodies.rectangle(
         (table.left + POCKET_GAP + (table.centerX - POCKET_GAP)) / 2,
         table.bottom + WALL_THICKNESS / 2,
         table.centerX - POCKET_GAP - (table.left + POCKET_GAP),
         WALL_THICKNESS,
-        { isStatic: true }
+        { isStatic: true, label: 'rail' }
       ),
       Matter.Bodies.rectangle(
         (table.centerX + POCKET_GAP + (table.right - POCKET_GAP)) / 2,
         table.bottom + WALL_THICKNESS / 2,
         table.right - POCKET_GAP - (table.centerX + POCKET_GAP),
         WALL_THICKNESS,
-        { isStatic: true }
+        { isStatic: true, label: 'rail' }
       ),
       Matter.Bodies.rectangle(
         table.left - WALL_THICKNESS / 2,
         table.centerY,
         WALL_THICKNESS,
         table.bottom - POCKET_GAP - (table.top + POCKET_GAP),
-        { isStatic: true }
+        { isStatic: true, label: 'rail' }
       ),
       Matter.Bodies.rectangle(
         table.right + WALL_THICKNESS / 2,
         table.centerY,
         WALL_THICKNESS,
         table.bottom - POCKET_GAP - (table.top + POCKET_GAP),
-        { isStatic: true }
+        { isStatic: true, label: 'rail' }
       )
     ]
     Matter.World.add(engine.world, rails)
 
     const safetyNet = [
-      Matter.Bodies.rectangle(table.centerX, table.top - SAFETY_MARGIN, (table.right - table.left) + SAFETY_MARGIN * 2, 20, { isStatic: true }),
-      Matter.Bodies.rectangle(table.centerX, table.bottom + SAFETY_MARGIN, (table.right - table.left) + SAFETY_MARGIN * 2, 20, { isStatic: true }),
-      Matter.Bodies.rectangle(table.left - SAFETY_MARGIN, table.centerY, 20, (table.bottom - table.top) + SAFETY_MARGIN * 2, { isStatic: true }),
-      Matter.Bodies.rectangle(table.right + SAFETY_MARGIN, table.centerY, 20, (table.bottom - table.top) + SAFETY_MARGIN * 2, { isStatic: true })
+      Matter.Bodies.rectangle(table.centerX, table.top - SAFETY_MARGIN, (table.right - table.left) + SAFETY_MARGIN * 2, 20, { isStatic: true, label: 'safetyNet' }),
+      Matter.Bodies.rectangle(table.centerX, table.bottom + SAFETY_MARGIN, (table.right - table.left) + SAFETY_MARGIN * 2, 20, { isStatic: true, label: 'safetyNet' }),
+      Matter.Bodies.rectangle(table.left - SAFETY_MARGIN, table.centerY, 20, (table.bottom - table.top) + SAFETY_MARGIN * 2, { isStatic: true, label: 'safetyNet' }),
+      Matter.Bodies.rectangle(table.right + SAFETY_MARGIN, table.centerY, 20, (table.bottom - table.top) + SAFETY_MARGIN * 2, { isStatic: true, label: 'safetyNet' })
     ]
     Matter.World.add(engine.world, safetyNet)
 
@@ -293,6 +341,41 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
     }
     ballsRef.current = entries
 
+    // Spin detection -- queues the draw/follow and rail-deflection effects
+    // (see the constants above) for the first physics step after this
+    // collision, rather than trying to apply them mid-resolution. The
+    // pre-contact curve (the third spin effect) instead runs continuously
+    // each substep in the loop below, since it's not tied to a discrete
+    // collision event.
+    Matter.Events.on(engine, 'collisionStart', (ev) => {
+      const cue = cueBallRef.current
+      if (!cue) return
+      for (const pair of ev.pairs) {
+        const other = pair.bodyA === cue ? pair.bodyB : pair.bodyB === cue ? pair.bodyA : null
+        if (!other) continue
+        if (other.label === 'rail') {
+          if (shotSpinRef.current.x !== 0) pendingRailDeflectRef.current = true
+        } else if (!firstContactAppliedRef.current) {
+          const entry = ballsRef.current.find((e) => e.body === other && !e.isCue)
+          if (entry) {
+            firstContactAppliedRef.current = true
+            if (shotSpinRef.current.y !== 0) {
+              const preSpeed = Math.hypot(cue.velocity.x, cue.velocity.y) || 1
+              const dirX = cue.velocity.x / preSpeed
+              const dirY = cue.velocity.y / preSpeed
+              // shotSpinRef.current.y is screen-aligned (negative = clicked
+              // above the dial's center, matching where the marker renders
+              // on the cue ball) -- negate it here so "above center" maps
+              // to the real-world follow convention (positive), "below
+              // center" to draw (negative), independent of that display
+              // convention.
+              pendingFollowDrawRef.current = { dirX, dirY, targetSpeed: preSpeed * -shotSpinRef.current.y * DRAW_FOLLOW_FACTOR }
+            }
+          }
+        }
+      }
+    })
+
     const resize = () => {
       canvas.width = window.innerWidth
       canvas.height = window.innerHeight
@@ -315,11 +398,56 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
       accumulatorRef.current += frameDelta
       let substeps = 0
       while (accumulatorRef.current >= FIXED_STEP_MS && substeps < MAX_SUBSTEPS_PER_FRAME) {
+        // Pre-contact curve -- a continuous perpendicular nudge each
+        // substep while the cue ball is rolling and hasn't touched
+        // anything yet this shot, capped to CURVE_MAX_SUBSTEPS regardless
+        // of contact (see that constant above for why).
+        if (shotSpinRef.current.x !== 0 && !firstContactAppliedRef.current && curveSubstepsLeftRef.current > 0) {
+          const cue = cueBallRef.current
+          if (cue) {
+            const speed = Math.hypot(cue.velocity.x, cue.velocity.y)
+            if (speed > 0.01) {
+              const dirX = cue.velocity.x / speed
+              const dirY = cue.velocity.y / speed
+              const perpX = -dirY
+              const perpY = dirX
+              Matter.Body.setVelocity(cue, {
+                x: cue.velocity.x + perpX * shotSpinRef.current.x * CURVE_STRENGTH,
+                y: cue.velocity.y + perpY * shotSpinRef.current.x * CURVE_STRENGTH
+              })
+            }
+            curveSubstepsLeftRef.current--
+          }
+        }
         Matter.Engine.update(eng, FIXED_STEP_MS)
         accumulatorRef.current -= FIXED_STEP_MS
         substeps++
       }
       if (substeps === MAX_SUBSTEPS_PER_FRAME) accumulatorRef.current = 0
+
+      // Apply the draw/follow and rail-deflection effects queued by the
+      // collisionStart listener above -- deferred to here (right after
+      // matter-js has fully resolved its own collision physics for this
+      // frame) so the adjustment composes on top of that instead of being
+      // overwritten by it.
+      if (pendingFollowDrawRef.current) {
+        const p = pendingFollowDrawRef.current
+        const cue = cueBallRef.current
+        if (cue) Matter.Body.setVelocity(cue, { x: p.dirX * p.targetSpeed, y: p.dirY * p.targetSpeed })
+        pendingFollowDrawRef.current = null
+      }
+      if (pendingRailDeflectRef.current) {
+        const cue = cueBallRef.current
+        if (cue) {
+          const rot = (shotSpinRef.current.x * RAIL_ENGLISH_DEGREES * Math.PI) / 180
+          const vx = cue.velocity.x
+          const vy = cue.velocity.y
+          const cos = Math.cos(rot)
+          const sin = Math.sin(rot)
+          Matter.Body.setVelocity(cue, { x: vx * cos - vy * sin, y: vx * sin + vy * cos })
+        }
+        pendingRailDeflectRef.current = false
+      }
 
       // Pocket capture -- checked every frame regardless of shot phase,
       // since a ball can drop in mid-roll well before everything settles.
@@ -394,6 +522,15 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
         ctx.beginPath()
         ctx.arc(entry.body.position.x - 3, entry.body.position.y - 3, BALL_RADIUS * 0.3, 0, Math.PI * 2)
         ctx.fill()
+        // Spin marker -- shows where on the cue ball the next shot will
+        // strike, mirroring the dial's own marker so the chosen spin is
+        // also visible on the ball itself while aiming.
+        if (entry.isCue && (spinRef.current.x !== 0 || spinRef.current.y !== 0)) {
+          ctx.fillStyle = '#39ff14'
+          ctx.beginPath()
+          ctx.arc(entry.body.position.x + spinRef.current.x * BALL_RADIUS * 0.6, entry.body.position.y + spinRef.current.y * BALL_RADIUS * 0.6, 2.2, 0, Math.PI * 2)
+          ctx.fill()
+        }
       }
 
       const drag = dragRef.current
@@ -482,6 +619,34 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
     setIsDragging(true)
   }
 
+  // Small always-visible dial for setting spin before a shot -- own local
+  // pointer handling (not setPointerCapture, same reasoning as the main
+  // table drag above), clamped to the unit circle since you can't strike
+  // the cue ball outside its own face.
+  const updateSpinFromPoint = useCallback((clientX: number, clientY: number) => {
+    const dial = spinDialRef.current
+    if (!dial) return
+    const rect = dial.getBoundingClientRect()
+    const cx = rect.left + rect.width / 2
+    const cy = rect.top + rect.height / 2
+    const r = rect.width / 2
+    let x = (clientX - cx) / r
+    let y = (clientY - cy) / r
+    const mag = Math.hypot(x, y)
+    if (mag > 1) {
+      x /= mag
+      y /= mag
+    }
+    spinRef.current = { x, y }
+    setSpin({ x, y })
+  }, [])
+
+  const onSpinDialPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (phaseRef.current !== 'ready' || gameOver) return
+    draggingSpinRef.current = true
+    updateSpinFromPoint(e.clientX, e.clientY)
+  }
+
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
       const drag = dragRef.current
@@ -509,14 +674,31 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
       const power = clamped / MAX_DRAG
       const angle = Math.atan2(-dy, -dx)
       const speed = power * MAX_LAUNCH_SPEED
+      shotSpinRef.current = spinRef.current
+      firstContactAppliedRef.current = false
+      pendingFollowDrawRef.current = null
+      pendingRailDeflectRef.current = false
+      curveSubstepsLeftRef.current = CURVE_MAX_SUBSTEPS
+      spinRef.current = { x: 0, y: 0 }
+      setSpin({ x: 0, y: 0 })
       Matter.Body.setVelocity(cue, { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed })
       strikesLeftRef.current -= 1
       setStrikesLeft(strikesLeftRef.current)
       phaseRef.current = 'rolling'
     }
+    const onSpinMove = (e: PointerEvent) => {
+      if (!draggingSpinRef.current) return
+      updateSpinFromPoint(e.clientX, e.clientY)
+    }
+    const onSpinUp = () => {
+      draggingSpinRef.current = false
+    }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', endDrag)
     window.addEventListener('pointercancel', endDrag)
+    window.addEventListener('pointermove', onSpinMove)
+    window.addEventListener('pointerup', onSpinUp)
+    window.addEventListener('pointercancel', onSpinUp)
     return () => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', endDrag)
@@ -565,6 +747,12 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
     setGameOver(false)
     setEndReason(null)
     phaseRef.current = 'ready'
+    spinRef.current = { x: 0, y: 0 }
+    setSpin({ x: 0, y: 0 })
+    firstContactAppliedRef.current = false
+    pendingFollowDrawRef.current = null
+    pendingRailDeflectRef.current = false
+    curveSubstepsLeftRef.current = 0
   }
 
   const endMessage =
@@ -609,6 +797,24 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
       {!gameOver && !isDragging && (
         <div className="pointer-events-none fixed bottom-10 left-1/2 z-[110] -translate-x-1/2 text-xs text-white/40">
           Drag back from the cue ball and release to strike
+        </div>
+      )}
+
+      {!gameOver && (
+        <div className="fixed bottom-24 left-6 z-[110] flex flex-col items-center gap-1">
+          <span className="text-[10px] font-medium text-white/50">Spin</span>
+          <div
+            ref={spinDialRef}
+            onPointerDown={onSpinDialPointerDown}
+            className="relative h-14 w-14 touch-none rounded-full border border-white/25 bg-black/60"
+          >
+            <div className="absolute top-1/2 left-1/2 h-[1px] w-full -translate-x-1/2 -translate-y-1/2 bg-white/10" />
+            <div className="absolute top-1/2 left-1/2 h-full w-[1px] -translate-x-1/2 -translate-y-1/2 bg-white/10" />
+            <div
+              className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent"
+              style={{ left: `${50 + spin.x * 50}%`, top: `${50 + spin.y * 50}%` }}
+            />
+          </div>
         </div>
       )}
 

@@ -41,6 +41,27 @@ const FIXED_STEP_MS = 1000 / 120
 const MAX_SUBSTEPS_PER_FRAME = 8
 const SAFETY_MARGIN = 260
 
+// Cue ball spin (English) -- see PoolGame.tsx for the full rationale and
+// tuning methodology (a standalone matter-js harness, not guesswork). Same
+// three bounded effects, same constants: draw/follow sets the post-contact
+// cue-ball speed as a fraction of its pre-contact speed rather than adding
+// to matter-js's own small, inconsistent post-collision residual; the
+// pre-contact curve is a continuous per-substep perpendicular nudge; the
+// rail-rebound deflection rotates the cue ball's post-bounce velocity on
+// top of matter-js's own correct mirror-angle reflection. The AI never
+// uses spin (always fires {x:0,y:0} via the same launchCue path) --
+// teaching it spin strategy is a separate problem from a basic opponent.
+const DRAW_FOLLOW_FACTOR = 0.35
+const CURVE_STRENGTH = 0.18
+// Capped to a bounded number of substeps regardless of contact -- real
+// swerve is a brief transient right after the shot, not something that
+// keeps bending the whole time the ball is moving. Without this cap, an
+// open shot with nothing to hit curves forever and the perpendicular
+// nudge eventually overwhelms the ball's actual direction of travel --
+// caught live in PoolGame.tsx, fixed there and ported here.
+const CURVE_MAX_SUBSTEPS = 20
+const RAIL_ENGLISH_DEGREES = 10
+
 // Index 1-7 -> solid color; the same color striped (9-15) renders as a
 // white ball with a band of that color instead of a full fill.
 const GROUP_COLORS: Record<number, string> = {
@@ -308,6 +329,22 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
   const pottedThisShotRef = useRef<number[]>([])
   const scratchedThisShotRef = useRef(false)
 
+  // ---- Spin (English) -- see PoolGame.tsx for the full design. spinRef
+  // is the PENDING spin the player has dialed in; shotSpinRef is what's
+  // actually in effect for the shot currently in flight (captured at
+  // launch, carried over the wire for a guest's shot -- see launchCue and
+  // the 'shot' subscription below). firstContactRef doing double duty as
+  // the "has the cue ball made contact yet this shot" gate (it's already
+  // exactly that, reset on every launch) saves a redundant boolean ref.
+  const spinRef = useRef({ x: 0, y: 0 })
+  const [spin, setSpin] = useState({ x: 0, y: 0 })
+  const shotSpinRef = useRef({ x: 0, y: 0 })
+  const pendingFollowDrawRef = useRef<{ dirX: number; dirY: number; targetSpeed: number } | null>(null)
+  const pendingRailDeflectRef = useRef(false)
+  const curveSubstepsLeftRef = useRef(0)
+  const spinDialRef = useRef<HTMLDivElement>(null)
+  const draggingSpinRef = useRef(false)
+
   const playersRef = useRef<[Group, Group]>([null, null])
   const currentPlayerRef = useRef<0 | 1>(0)
   const [groups, setGroups] = useState<[Group, Group]>([null, null])
@@ -506,12 +543,16 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
 
   // Shared by the local human (solo/host) pointerup handler and the AI --
   // same per-shot ref resets + velocity set either way.
-  const launchCue = useCallback((angle: number, power: number) => {
+  const launchCue = useCallback((angle: number, power: number, spin: { x: number; y: number }) => {
     const cue = cueBallRef.current
     if (!cue) return
     pottedThisShotRef.current = []
     scratchedThisShotRef.current = false
     firstContactRef.current = null
+    shotSpinRef.current = spin
+    pendingFollowDrawRef.current = null
+    pendingRailDeflectRef.current = false
+    curveSubstepsLeftRef.current = CURVE_MAX_SUBSTEPS
     const speed = power * MAX_LAUNCH_SPEED
     Matter.Body.setVelocity(cue, { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed })
     phaseRef.current = 'rolling'
@@ -558,7 +599,7 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
             .filter((e) => !e.sunk)
             .map((e) => ({ x: e.body.position.x, y: e.body.position.y, number: e.number, isCue: e.isCue }))
           const shot = chooseAIShot(balls, tbl, pocketsRef.current, playersRef.current[AI_SEAT])
-          if (shot) launchCue(shot.angle, shot.power)
+          if (shot) launchCue(shot.angle, shot.power, { x: 0, y: 0 })
         }
       },
       phaseRef.current === 'placing' ? 500 : 900
@@ -608,59 +649,79 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
         table.top - WALL_THICKNESS / 2,
         table.centerX - POCKET_GAP - (table.left + POCKET_GAP),
         WALL_THICKNESS,
-        { isStatic: true }
+        { isStatic: true, label: 'rail' }
       ),
       Matter.Bodies.rectangle(
         (table.centerX + POCKET_GAP + (table.right - POCKET_GAP)) / 2,
         table.top - WALL_THICKNESS / 2,
         table.right - POCKET_GAP - (table.centerX + POCKET_GAP),
         WALL_THICKNESS,
-        { isStatic: true }
+        { isStatic: true, label: 'rail' }
       ),
       Matter.Bodies.rectangle(
         (table.left + POCKET_GAP + (table.centerX - POCKET_GAP)) / 2,
         table.bottom + WALL_THICKNESS / 2,
         table.centerX - POCKET_GAP - (table.left + POCKET_GAP),
         WALL_THICKNESS,
-        { isStatic: true }
+        { isStatic: true, label: 'rail' }
       ),
       Matter.Bodies.rectangle(
         (table.centerX + POCKET_GAP + (table.right - POCKET_GAP)) / 2,
         table.bottom + WALL_THICKNESS / 2,
         table.right - POCKET_GAP - (table.centerX + POCKET_GAP),
         WALL_THICKNESS,
-        { isStatic: true }
+        { isStatic: true, label: 'rail' }
       ),
       Matter.Bodies.rectangle(table.left - WALL_THICKNESS / 2, table.centerY, WALL_THICKNESS, table.bottom - POCKET_GAP - (table.top + POCKET_GAP), {
-        isStatic: true
+        isStatic: true,
+        label: 'rail'
       }),
       Matter.Bodies.rectangle(table.right + WALL_THICKNESS / 2, table.centerY, WALL_THICKNESS, table.bottom - POCKET_GAP - (table.top + POCKET_GAP), {
-        isStatic: true
+        isStatic: true,
+        label: 'rail'
       })
     ]
     Matter.World.add(engine.world, rails)
 
     const safetyNet = [
-      Matter.Bodies.rectangle(table.centerX, table.top - SAFETY_MARGIN, (table.right - table.left) + SAFETY_MARGIN * 2, 20, { isStatic: true }),
-      Matter.Bodies.rectangle(table.centerX, table.bottom + SAFETY_MARGIN, (table.right - table.left) + SAFETY_MARGIN * 2, 20, { isStatic: true }),
-      Matter.Bodies.rectangle(table.left - SAFETY_MARGIN, table.centerY, 20, (table.bottom - table.top) + SAFETY_MARGIN * 2, { isStatic: true }),
-      Matter.Bodies.rectangle(table.right + SAFETY_MARGIN, table.centerY, 20, (table.bottom - table.top) + SAFETY_MARGIN * 2, { isStatic: true })
+      Matter.Bodies.rectangle(table.centerX, table.top - SAFETY_MARGIN, (table.right - table.left) + SAFETY_MARGIN * 2, 20, { isStatic: true, label: 'safetyNet' }),
+      Matter.Bodies.rectangle(table.centerX, table.bottom + SAFETY_MARGIN, (table.right - table.left) + SAFETY_MARGIN * 2, 20, { isStatic: true, label: 'safetyNet' }),
+      Matter.Bodies.rectangle(table.left - SAFETY_MARGIN, table.centerY, 20, (table.bottom - table.top) + SAFETY_MARGIN * 2, { isStatic: true, label: 'safetyNet' }),
+      Matter.Bodies.rectangle(table.right + SAFETY_MARGIN, table.centerY, 20, (table.bottom - table.top) + SAFETY_MARGIN * 2, { isStatic: true, label: 'safetyNet' })
     ]
     Matter.World.add(engine.world, safetyNet)
 
     rackBalls(engine, table)
 
+    // Rail-deflection (spin) applies on every cushion contact for the
+    // whole shot, so this no longer early-returns once firstContactRef is
+    // set the way it used to -- only the foul-tracking/draw-follow half
+    // of the body stays gated to the first object-ball contact.
     Matter.Events.on(engine, 'collisionStart', (ev) => {
-      if (phaseRef.current !== 'rolling' || firstContactRef.current !== null) return
+      if (phaseRef.current !== 'rolling') return
       const cue = cueBallRef.current
       if (!cue) return
       for (const pair of ev.pairs) {
         const other = pair.bodyA === cue ? pair.bodyB : pair.bodyB === cue ? pair.bodyA : null
         if (!other) continue
+        if (other.label === 'rail') {
+          if (shotSpinRef.current.x !== 0) pendingRailDeflectRef.current = true
+          continue
+        }
+        if (firstContactRef.current !== null) continue
         const entry = ballsRef.current.find((e) => e.body === other && !e.isCue)
         if (entry) {
           firstContactRef.current = entry.number
-          break
+          if (shotSpinRef.current.y !== 0) {
+            const preSpeed = Math.hypot(cue.velocity.x, cue.velocity.y) || 1
+            const dirX = cue.velocity.x / preSpeed
+            const dirY = cue.velocity.y / preSpeed
+            // See PoolGame.tsx for why this is negated: shotSpinRef.y is
+            // screen-aligned (negative = clicked above the dial's
+            // center), negated here to match the real-world follow
+            // convention (above center = positive = follow).
+            pendingFollowDrawRef.current = { dirX, dirY, targetSpeed: preSpeed * -shotSpinRef.current.y * DRAW_FOLLOW_FACTOR }
+          }
         }
       }
     })
@@ -691,11 +752,54 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
         accumulatorRef.current += frameDelta
         let substeps = 0
         while (accumulatorRef.current >= FIXED_STEP_MS && substeps < MAX_SUBSTEPS_PER_FRAME) {
+          // Pre-contact curve -- see PoolGame.tsx; a continuous
+          // perpendicular nudge each substep while the cue ball hasn't
+          // touched anything yet this shot, capped to CURVE_MAX_SUBSTEPS
+          // regardless of contact (see that constant above for why).
+          if (shotSpinRef.current.x !== 0 && firstContactRef.current === null && curveSubstepsLeftRef.current > 0) {
+            const cue = cueBallRef.current
+            if (cue) {
+              const speed = Math.hypot(cue.velocity.x, cue.velocity.y)
+              if (speed > 0.01) {
+                const dirX = cue.velocity.x / speed
+                const dirY = cue.velocity.y / speed
+                const perpX = -dirY
+                const perpY = dirX
+                Matter.Body.setVelocity(cue, {
+                  x: cue.velocity.x + perpX * shotSpinRef.current.x * CURVE_STRENGTH,
+                  y: cue.velocity.y + perpY * shotSpinRef.current.x * CURVE_STRENGTH
+                })
+              }
+              curveSubstepsLeftRef.current--
+            }
+          }
           Matter.Engine.update(eng, FIXED_STEP_MS)
           accumulatorRef.current -= FIXED_STEP_MS
           substeps++
         }
         if (substeps === MAX_SUBSTEPS_PER_FRAME) accumulatorRef.current = 0
+
+        // Apply the draw/follow and rail-deflection effects queued by the
+        // collisionStart listener above -- see PoolGame.tsx for why this
+        // is deferred to here rather than applied inside the event.
+        if (pendingFollowDrawRef.current) {
+          const p = pendingFollowDrawRef.current
+          const cue = cueBallRef.current
+          if (cue) Matter.Body.setVelocity(cue, { x: p.dirX * p.targetSpeed, y: p.dirY * p.targetSpeed })
+          pendingFollowDrawRef.current = null
+        }
+        if (pendingRailDeflectRef.current) {
+          const cue = cueBallRef.current
+          if (cue) {
+            const rot = (shotSpinRef.current.x * RAIL_ENGLISH_DEGREES * Math.PI) / 180
+            const vx = cue.velocity.x
+            const vy = cue.velocity.y
+            const cos = Math.cos(rot)
+            const sin = Math.sin(rot)
+            Matter.Body.setVelocity(cue, { x: vx * cos - vy * sin, y: vx * sin + vy * cos })
+          }
+          pendingRailDeflectRef.current = false
+        }
 
         for (const entry of ballsRef.current) {
           if (entry.sunk) continue
@@ -771,6 +875,14 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
           ctx.beginPath()
           ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2)
           ctx.fill()
+          // Spin marker -- where the next shot will strike, mirroring the
+          // dial's own marker (see PoolGame.tsx).
+          if (spinRef.current.x !== 0 || spinRef.current.y !== 0) {
+            ctx.fillStyle = '#39ff14'
+            ctx.beginPath()
+            ctx.arc(x + spinRef.current.x * BALL_RADIUS * 0.6, y + spinRef.current.y * BALL_RADIUS * 0.6, 2.2, 0, Math.PI * 2)
+            ctx.fill()
+          }
         } else if (groupOf(entry.number) === 'stripes') {
           ctx.fillStyle = '#f4ecd8'
           ctx.beginPath()
@@ -901,13 +1013,17 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
       room.enterPresence({ role })
 
       if (role === 'host') {
-        room.subscribe('shot', (data: { angle: number; speed: number }) => {
+        room.subscribe('shot', (data: { angle: number; speed: number; spin?: { x: number; y: number } }) => {
           if (phaseRef.current !== 'ready' || currentPlayerRef.current !== 1) return
           const cue = cueBallRef.current
           if (!cue) return
           pottedThisShotRef.current = []
           scratchedThisShotRef.current = false
           firstContactRef.current = null
+          shotSpinRef.current = data.spin ?? { x: 0, y: 0 }
+          pendingFollowDrawRef.current = null
+          pendingRailDeflectRef.current = false
+          curveSubstepsLeftRef.current = CURVE_MAX_SUBSTEPS
           Matter.Body.setVelocity(cue, { x: Math.cos(data.angle) * data.speed, y: Math.sin(data.angle) * data.speed })
           phaseRef.current = 'rolling'
         })
@@ -1005,6 +1121,33 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
     setIsDragging(true)
   }
 
+  // Small always-visible dial for setting spin before a shot -- see
+  // PoolGame.tsx for the full reasoning (own local pointer handling, not
+  // setPointerCapture; clamped to the unit circle).
+  const updateSpinFromPoint = useCallback((clientX: number, clientY: number) => {
+    const dial = spinDialRef.current
+    if (!dial) return
+    const rect = dial.getBoundingClientRect()
+    const cx = rect.left + rect.width / 2
+    const cy = rect.top + rect.height / 2
+    const r = rect.width / 2
+    let x = (clientX - cx) / r
+    let y = (clientY - cy) / r
+    const mag = Math.hypot(x, y)
+    if (mag > 1) {
+      x /= mag
+      y /= mag
+    }
+    spinRef.current = { x, y }
+    setSpin({ x, y })
+  }, [])
+
+  const onSpinDialPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (phaseRef.current !== 'ready' || gameOver || !amShooter()) return
+    draggingSpinRef.current = true
+    updateSpinFromPoint(e.clientX, e.clientY)
+  }
+
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
       const drag = dragRef.current
@@ -1031,20 +1174,37 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
       const angle = Math.atan2(-dy, -dx)
 
       if (mpRoleRef.current === 'guest') {
-        ablyRoomRef.current?.publish('shot', { angle, speed: power * MAX_LAUNCH_SPEED })
+        ablyRoomRef.current?.publish('shot', { angle, speed: power * MAX_LAUNCH_SPEED, spin: spinRef.current })
+        spinRef.current = { x: 0, y: 0 }
+        setSpin({ x: 0, y: 0 })
         phaseRef.current = 'ready'
         return
       }
 
-      launchCue(angle, power)
+      launchCue(angle, power, spinRef.current)
+      spinRef.current = { x: 0, y: 0 }
+      setSpin({ x: 0, y: 0 })
+    }
+    const onSpinMove = (e: PointerEvent) => {
+      if (!draggingSpinRef.current) return
+      updateSpinFromPoint(e.clientX, e.clientY)
+    }
+    const onSpinUp = () => {
+      draggingSpinRef.current = false
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', endDrag)
     window.addEventListener('pointercancel', endDrag)
+    window.addEventListener('pointermove', onSpinMove)
+    window.addEventListener('pointerup', onSpinUp)
+    window.addEventListener('pointercancel', onSpinUp)
     return () => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', endDrag)
       window.removeEventListener('pointercancel', endDrag)
+      window.removeEventListener('pointermove', onSpinMove)
+      window.removeEventListener('pointerup', onSpinUp)
+      window.removeEventListener('pointercancel', onSpinUp)
     }
   }, [])
 
@@ -1066,6 +1226,11 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
     phaseRef.current = 'ready'
     setIsPlacing(false)
     setSunkNumbers(new Set())
+    spinRef.current = { x: 0, y: 0 }
+    setSpin({ x: 0, y: 0 })
+    pendingFollowDrawRef.current = null
+    pendingRailDeflectRef.current = false
+    curveSubstepsLeftRef.current = 0
   }
 
   // Toggling restarts the rack -- simplest way to guarantee a clean state
@@ -1166,6 +1331,24 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
       )}
       {!gameOver && isPlacing && myTurn && (
         <div className="pointer-events-none fixed bottom-10 left-1/2 z-[110] -translate-x-1/2 text-xs text-accent">Ball in hand -- tap to place the cue ball</div>
+      )}
+
+      {!gameOver && !isPlacing && myTurn && (
+        <div className="fixed bottom-24 left-6 z-[110] flex flex-col items-center gap-1">
+          <span className="text-[10px] font-medium text-white/50">Spin</span>
+          <div
+            ref={spinDialRef}
+            onPointerDown={onSpinDialPointerDown}
+            className="relative h-14 w-14 touch-none rounded-full border border-white/25 bg-black/60"
+          >
+            <div className="absolute top-1/2 left-1/2 h-[1px] w-full -translate-x-1/2 -translate-y-1/2 bg-white/10" />
+            <div className="absolute top-1/2 left-1/2 h-full w-[1px] -translate-x-1/2 -translate-y-1/2 bg-white/10" />
+            <div
+              className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent"
+              style={{ left: `${50 + spin.x * 50}%`, top: `${50 + spin.y * 50}%` }}
+            />
+          </div>
+        </div>
       )}
 
       {foulToast && (
