@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Matter from 'matter-js'
+import { sfx, setSfxMuted, isSfxMuted } from '../../lib/sfx'
 
 // 999 Sports: Pool (arcade mode). Same top-down, zeroed-gravity Matter
 // setup as BowlingGame.tsx, same window-level drag-vector aim/power input
@@ -290,6 +291,8 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
   const [endReason, setEndReason] = useState<EndReason>(null)
   const [personalBest, setPersonalBest] = useState<number | null>(null)
   const [loggedIn, setLoggedIn] = useState(true)
+  const [muted, setMuted] = useState(false)
+  const soundBudgetRef = useRef(0)
 
   const saveScore = useCallback((finalSunk: number) => {
     try {
@@ -459,29 +462,50 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
     // collision event.
     Matter.Events.on(engine, 'collisionStart', (ev) => {
       const cue = cueBallRef.current
-      if (!cue) return
-      for (const pair of ev.pairs) {
-        const other = pair.bodyA === cue ? pair.bodyB : pair.bodyB === cue ? pair.bodyA : null
-        if (!other) continue
-        if (other.label === 'rail') {
-          if (shotSpinRef.current.x !== 0) pendingRailDeflectRef.current = true
-        } else if (!firstContactAppliedRef.current) {
-          const entry = ballsRef.current.find((e) => e.body === other && !e.isCue)
-          if (entry) {
-            firstContactAppliedRef.current = true
-            if (shotSpinRef.current.y !== 0) {
-              const preSpeed = Math.hypot(cue.velocity.x, cue.velocity.y) || 1
-              const dirX = cue.velocity.x / preSpeed
-              const dirY = cue.velocity.y / preSpeed
-              // shotSpinRef.current.y is screen-aligned (negative = clicked
-              // above the dial's center, matching where the marker renders
-              // on the cue ball) -- negate it here so "above center" maps
-              // to the real-world follow convention (positive), "below
-              // center" to draw (negative), independent of that display
-              // convention.
-              pendingFollowDrawRef.current = { dirX, dirY, targetSpeed: preSpeed * -shotSpinRef.current.y * DRAW_FOLLOW_FACTOR }
+      if (cue) {
+        for (const pair of ev.pairs) {
+          const other = pair.bodyA === cue ? pair.bodyB : pair.bodyB === cue ? pair.bodyA : null
+          if (!other) continue
+          if (other.label === 'rail') {
+            if (shotSpinRef.current.x !== 0) pendingRailDeflectRef.current = true
+          } else if (!firstContactAppliedRef.current) {
+            const entry = ballsRef.current.find((e) => e.body === other && !e.isCue)
+            if (entry) {
+              firstContactAppliedRef.current = true
+              if (shotSpinRef.current.y !== 0) {
+                const preSpeed = Math.hypot(cue.velocity.x, cue.velocity.y) || 1
+                const dirX = cue.velocity.x / preSpeed
+                const dirY = cue.velocity.y / preSpeed
+                // shotSpinRef.current.y is screen-aligned (negative = clicked
+                // above the dial's center, matching where the marker renders
+                // on the cue ball) -- negate it here so "above center" maps
+                // to the real-world follow convention (positive), "below
+                // center" to draw (negative), independent of that display
+                // convention.
+                pendingFollowDrawRef.current = { dirX, dirY, targetSpeed: preSpeed * -shotSpinRef.current.y * DRAW_FOLLOW_FACTOR }
+              }
             }
           }
+        }
+      }
+
+      // Contact/rail sound -- every ball pair, not just cue-involved, so
+      // object-on-object clacks during a break are audible too. Throttled
+      // per rendered frame (soundBudgetRef, reset in the loop below) so a
+      // chaotic break doesn't fire a dozen overlapping oscillators at once.
+      for (const pair of ev.pairs) {
+        if (soundBudgetRef.current <= 0) break
+        const isBallA = pair.bodyA.label === 'cue' || pair.bodyA.label.startsWith('ball-')
+        const isBallB = pair.bodyB.label === 'cue' || pair.bodyB.label.startsWith('ball-')
+        if (isBallA && isBallB) {
+          const relSpeed = Math.hypot(pair.bodyA.velocity.x - pair.bodyB.velocity.x, pair.bodyA.velocity.y - pair.bodyB.velocity.y)
+          sfx.billiardClick(relSpeed / MAX_LAUNCH_SPEED)
+          soundBudgetRef.current--
+        } else if ((isBallA && pair.bodyB.label === 'rail') || (isBallB && pair.bodyA.label === 'rail')) {
+          const ball = isBallA ? pair.bodyA : pair.bodyB
+          const speed = Math.hypot(ball.velocity.x, ball.velocity.y)
+          sfx.billiardThud(speed / MAX_LAUNCH_SPEED)
+          soundBudgetRef.current--
         }
       }
     })
@@ -506,6 +530,7 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
         return
       }
 
+      soundBudgetRef.current = 6
       accumulatorRef.current += frameDelta
       let substeps = 0
       while (accumulatorRef.current >= FIXED_STEP_MS && substeps < MAX_SUBSTEPS_PER_FRAME) {
@@ -570,6 +595,7 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
           if (d < POCKET_RADIUS || inGapNotch) {
             entry.sunk = true
             Matter.World.remove(eng.world, entry.body)
+            sfx.billiardPocket()
             if (entry.isCue) {
               scratchedRef.current = true
             } else {
@@ -713,10 +739,24 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
     try {
       const saved = parseInt(localStorage.getItem('jj-pool-best') || '0', 10)
       if (saved > 0) setPersonalBest(saved)
+      const mutedSaved = localStorage.getItem('jj-pool-muted') === 'true'
+      setMuted(mutedSaved)
+      setSfxMuted(mutedSaved)
     } catch {
-      // Fine -- best just won't show until the next save round-trip.
+      // Fine -- best/mute just won't persist for this visitor.
     }
   }, [])
+
+  const toggleMuted = () => {
+    const next = !isSfxMuted()
+    setSfxMuted(next)
+    setMuted(next)
+    try {
+      localStorage.setItem('jj-pool-muted', String(next))
+    } catch {
+      // Fine.
+    }
+  }
 
   // Same window-level drag tracking BowlingGame.tsx uses -- pointerdown is
   // a React handler gating "did this start on the canvas", move/up are
@@ -791,6 +831,7 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
       curveSubstepsLeftRef.current = CURVE_MAX_SUBSTEPS
       spinRef.current = { x: 0, y: 0 }
       setSpin({ x: 0, y: 0 })
+      sfx.billiardStrike(power)
       Matter.Body.setVelocity(cue, { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed })
       strikesLeftRef.current -= 1
       setStrikesLeft(strikesLeftRef.current)
@@ -883,6 +924,13 @@ export default function PoolGame({ onBack, onClose }: { onBack: () => void; onCl
         className="fixed top-4 right-4 z-[120] rounded-full border border-accent/50 bg-black/80 px-4 py-2 text-sm text-white transition-colors hover:border-accent"
       >
         Close ✕
+      </button>
+      <button
+        onClick={toggleMuted}
+        title={muted ? 'Unmute' : 'Mute'}
+        className="fixed top-4 right-24 z-[120] rounded-full border border-accent/50 bg-black/80 px-3 py-2 text-sm text-white transition-colors hover:border-accent"
+      >
+        {muted ? '🔇' : '🔊'}
       </button>
 
       <div className="pointer-events-none fixed top-4 left-1/2 z-[110] -translate-x-1/2 rounded-full border border-white/15 bg-black/70 px-4 py-1.5 text-xs font-medium text-white/80 backdrop-blur-sm">

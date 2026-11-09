@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Matter from 'matter-js'
 import { AblyRoom, randomRoomCode } from '../../lib/ablyRoom'
+import { sfx, setSfxMuted, isSfxMuted } from '../../lib/sfx'
 
 // 999 Sports: Pool -- 8-Ball. Real rules this time (unlike PoolGame.tsx's
 // arcade mode): ball groups, fouls, ball-in-hand, win/loss on the 8-ball.
@@ -522,6 +523,8 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
   const ablyRoomRef = useRef<AblyRoom | null>(null)
   const broadcastCounterRef = useRef(0)
   const [showLobby, setShowLobby] = useState(false)
+  const [muted, setMuted] = useState(false)
+  const soundBudgetRef = useRef(0)
 
   // A host-assigned seat: host is always seat 0, guest is always seat 1.
   // mySeatRef gates local input -- in solo play it's irrelevant (both
@@ -688,6 +691,7 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
     pendingRailDeflectRef.current = false
     curveSubstepsLeftRef.current = CURVE_MAX_SUBSTEPS
     const speed = power * MAX_LAUNCH_SPEED
+    sfx.billiardStrike(power)
     Matter.Body.setVelocity(cue, { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed })
     phaseRef.current = 'rolling'
   }, [])
@@ -739,6 +743,27 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
       phaseRef.current === 'placing' ? 500 : 900
     )
   }, [launchCue, placeCue])
+
+  useEffect(() => {
+    try {
+      const mutedSaved = localStorage.getItem('jj-eightball-muted') === 'true'
+      setMuted(mutedSaved)
+      setSfxMuted(mutedSaved)
+    } catch {
+      // Fine -- mute preference just won't persist for this visitor.
+    }
+  }, [])
+
+  const toggleMuted = () => {
+    const next = !isSfxMuted()
+    setSfxMuted(next)
+    setMuted(next)
+    try {
+      localStorage.setItem('jj-eightball-muted', String(next))
+    } catch {
+      // Fine.
+    }
+  }
 
   // ---- Setup: engine, rails, rack, render/physics loop -----------------
   useEffect(() => {
@@ -860,6 +885,24 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
           }
         }
       }
+
+      // Contact/rail sound -- see PoolGame.tsx: every ball pair, not just
+      // cue-involved, throttled per rendered frame via soundBudgetRef.
+      for (const pair of ev.pairs) {
+        if (soundBudgetRef.current <= 0) break
+        const isBallA = pair.bodyA.label === 'cue' || pair.bodyA.label.startsWith('ball-')
+        const isBallB = pair.bodyB.label === 'cue' || pair.bodyB.label.startsWith('ball-')
+        if (isBallA && isBallB) {
+          const relSpeed = Math.hypot(pair.bodyA.velocity.x - pair.bodyB.velocity.x, pair.bodyA.velocity.y - pair.bodyB.velocity.y)
+          sfx.billiardClick(relSpeed / MAX_LAUNCH_SPEED)
+          soundBudgetRef.current--
+        } else if ((isBallA && pair.bodyB.label === 'rail') || (isBallB && pair.bodyA.label === 'rail')) {
+          const ball = isBallA ? pair.bodyA : pair.bodyB
+          const speed = Math.hypot(ball.velocity.x, ball.velocity.y)
+          sfx.billiardThud(speed / MAX_LAUNCH_SPEED)
+          soundBudgetRef.current--
+        }
+      }
     })
 
     const resize = () => {
@@ -886,6 +929,7 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
       // broadcast state, applied via mpRenderBallsRef (see networking
       // effect below).
       if (mpRoleRef.current !== 'guest') {
+        soundBudgetRef.current = 6
         accumulatorRef.current += frameDelta
         let substeps = 0
         while (accumulatorRef.current >= FIXED_STEP_MS && substeps < MAX_SUBSTEPS_PER_FRAME) {
@@ -946,6 +990,7 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
             if (d < POCKET_RADIUS || inGapNotch) {
               entry.sunk = true
               Matter.World.remove(eng.world, entry.body)
+              sfx.billiardPocket()
               if (entry.isCue) scratchedThisShotRef.current = true
               else pottedThisShotRef.current.push(entry.number)
               break
@@ -1284,6 +1329,11 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
       const angle = Math.atan2(-dy, -dx)
 
       if (mpRoleRef.current === 'guest') {
+        // Immediate local feedback for the guest's own action -- the
+        // host's physics sim is authoritative and plays contact/rail/
+        // pocket sounds as they actually happen there, but the strike
+        // sound for the player's own shot shouldn't wait on a round trip.
+        sfx.billiardStrike(power)
         ablyRoomRef.current?.publish('shot', { angle, speed: power * MAX_LAUNCH_SPEED, spin: spinRef.current })
         spinRef.current = { x: 0, y: 0 }
         setSpin({ x: 0, y: 0 })
@@ -1374,6 +1424,13 @@ export default function EightBallGame({ onBack, onClose }: { onBack: () => void;
         className="fixed top-4 right-4 z-[120] rounded-full border border-accent/50 bg-black/80 px-4 py-2 text-sm text-white transition-colors hover:border-accent"
       >
         Close ✕
+      </button>
+      <button
+        onClick={toggleMuted}
+        title={muted ? 'Unmute' : 'Mute'}
+        className="fixed top-4 right-24 z-[120] rounded-full border border-accent/50 bg-black/80 px-3 py-2 text-sm text-white transition-colors hover:border-accent"
+      >
+        {muted ? '🔇' : '🔊'}
       </button>
 
       {mpRole === 'solo' && !showLobby && (

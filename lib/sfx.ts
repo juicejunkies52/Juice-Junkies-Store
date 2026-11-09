@@ -87,5 +87,24 @@ export const sfx = {
     tone(523, 0.08, { type: 'triangle', volume: 0.09 })
     tone(659, 0.08, { type: 'triangle', volume: 0.09, delay: 0.08 })
     tone(784, 0.14, { type: 'triangle', volume: 0.09, delay: 0.16 })
+  },
+  // Pool: Arcade / 8-Ball -- intensity is 0..1 (impact speed relative to
+  // the fastest a ball can move), scaling pitch and volume so a light tap
+  // reads differently from a hard break-shot collision.
+  billiardStrike: (power = 1) => {
+    const p = Math.max(0, Math.min(1, power))
+    tone(200 + p * 180, 0.045, { type: 'square', volume: 0.05 + p * 0.05, slideTo: 130 })
+  },
+  billiardClick: (intensity = 1) => {
+    const s = Math.max(0, Math.min(1, intensity))
+    tone(850 + s * 300, 0.035, { type: 'triangle', volume: 0.04 + s * 0.05, slideTo: 600 })
+  },
+  billiardThud: (intensity = 1) => {
+    const s = Math.max(0, Math.min(1, intensity))
+    tone(130 + s * 50, 0.07, { type: 'sine', volume: 0.04 + s * 0.05, slideTo: 85 })
+  },
+  billiardPocket: () => {
+    tone(480, 0.09, { type: 'sine', volume: 0.09, slideTo: 250 })
+    tone(250, 0.14, { type: 'sine', volume: 0.07, delay: 0.07, slideTo: 110 })
   }
 }
